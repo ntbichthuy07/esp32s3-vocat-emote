@@ -12,6 +12,7 @@ public:
 
 private:
     static ToolResult HandleGetLatestNews(const PropertyList& properties);
+    static ToolResult HandleGetArticleDetail(const PropertyList& properties);
 };
 
 #endif  // NEWS_MCP_TOOL_H

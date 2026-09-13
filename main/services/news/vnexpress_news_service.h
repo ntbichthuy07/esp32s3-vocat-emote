@@ -21,6 +21,13 @@ public:
     static bool FetchLatestNews(const std::string& category, int limit,
                                  std::vector<VnExpressNewsItem>& out_items,
                                  std::string& out_error);
+
+    // Fetches an article page and extracts its main readable text (HTML tags, scripts and
+    // styles stripped). Intended for a `link` returned by FetchLatestNews, but works on any
+    // vnexpress.net article URL. Returns true and fills `out_content` on success; false and
+    // `out_error` otherwise (e.g. the page's markup doesn't match what we can extract).
+    static bool FetchArticleDetail(const std::string& url, std::string& out_content,
+                                    std::string& out_error);
 };
 
 #endif  // VNEXPRESS_NEWS_SERVICE_H

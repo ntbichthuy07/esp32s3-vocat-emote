@@ -5,6 +5,7 @@
 #include "board.h"
 #include "display.h"
 #include "services/news/news_mcp_tool.h"
+#include "services/search/web_search_mcp_tool.h"
 #include "mcp_server.h"
 #include "mqtt_protocol.h"
 #include "settings.h"
@@ -106,6 +107,7 @@ void Application::Initialize() {
     mcp_server.AddCommonTools();
     mcp_server.AddUserOnlyTools();
     NewsMcpTool::Initialize();
+    WebSearchMcpTool::Initialize();
 
     // Set network event callback for UI updates and network state handling
     board.SetNetworkEventCallback([this](NetworkEvent event, const std::string& data) {

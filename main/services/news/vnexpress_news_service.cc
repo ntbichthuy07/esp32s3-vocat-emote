@@ -17,6 +17,11 @@ constexpr int kHttpTimeoutMs = 10000;
 // VnExpress RSS feeds run a few hundred KB on "trang chu"; cap what we buffer
 // in RAM since embedded boards don't need (and can't afford) the whole thing.
 constexpr size_t kMaxBodyBytes = 32 * 1024;
+// Article pages carry a lot of surrounding markup (nav, related links, scripts) before we ever
+// get to reduce it to plain text, so allow a bigger raw read than the RSS feeds above.
+constexpr size_t kDetailMaxBodyBytes = 96 * 1024;
+// Keep the extracted article text short enough to read aloud in a reasonable time.
+constexpr size_t kDetailMaxContentChars = 3000;
 constexpr size_t kReadChunkBytes = 1024;
 
 // Maps the user-facing category name (matching vnexpress.net/<category> paths)
@@ -79,19 +84,92 @@ std::string ExtractXmlTag(const std::string& block, const std::string& tag) {
     return Trim(content);
 }
 
-// Reads at most kMaxBodyBytes of the HTTP response body.
-std::string ReadBodyCapped(Http* http) {
+// Reads at most `max_bytes` of the HTTP response body.
+std::string ReadBodyCapped(Http* http, size_t max_bytes) {
     std::string body;
     size_t content_length = http->GetBodyLength();
-    body.reserve(content_length > 0 ? std::min(content_length, kMaxBodyBytes) : kReadChunkBytes);
+    body.reserve(content_length > 0 ? std::min(content_length, max_bytes) : kReadChunkBytes);
 
     char buffer[kReadChunkBytes];
-    while (body.size() < kMaxBodyBytes) {
+    while (body.size() < max_bytes) {
         auto read_result = http->Read(buffer, sizeof(buffer));
         if (!read_result || *read_result <= 0) break;
         body.append(buffer, *read_result);
     }
     return body;
+}
+
+const std::unordered_map<std::string, std::string>& HtmlEntities() {
+    static const std::unordered_map<std::string, std::string> kEntities = {
+        {"&amp;", "&"}, {"&quot;", "\""}, {"&#39;", "'"}, {"&apos;", "'"},
+        {"&lt;", "<"},  {"&gt;", ">"},    {"&nbsp;", " "},
+    };
+    return kEntities;
+}
+
+std::string DecodeHtmlEntities(const std::string& s) {
+    const auto& entities = HtmlEntities();
+    std::string out;
+    out.reserve(s.size());
+    size_t i = 0;
+    while (i < s.size()) {
+        if (s[i] == '&') {
+            size_t semi = s.find(';', i);
+            if (semi != std::string::npos && semi - i <= 8) {
+                auto it = entities.find(s.substr(i, semi - i + 1));
+                if (it != entities.end()) {
+                    out += it->second;
+                    i = semi + 1;
+                    continue;
+                }
+            }
+        }
+        out.push_back(s[i]);
+        i++;
+    }
+    return out;
+}
+
+// Strips HTML tags and collapses whitespace, dropping the contents of <script>/<style> blocks
+// entirely so their JS/CSS text doesn't pollute the extracted article body.
+std::string StripHtml(const std::string& html) {
+    std::string text;
+    text.reserve(html.size() / 2);
+    size_t i = 0;
+    while (i < html.size()) {
+        if (html[i] == '<') {
+            bool is_script = html.compare(i, 7, "<script") == 0;
+            bool is_style = html.compare(i, 6, "<style") == 0;
+            if (is_script || is_style) {
+                size_t close = html.find(is_script ? "</script>" : "</style>", i);
+                i = (close == std::string::npos) ? html.size() : close + (is_script ? 9 : 8);
+                continue;
+            }
+            size_t end = html.find('>', i);
+            if (end == std::string::npos) break;
+            i = end + 1;
+            text.push_back(' ');  // tag boundary acts as a word/paragraph separator
+            continue;
+        }
+        text.push_back(html[i]);
+        i++;
+    }
+    text = DecodeHtmlEntities(text);
+
+    std::string collapsed;
+    collapsed.reserve(text.size());
+    bool last_was_space = true;
+    for (char c : text) {
+        bool is_space = std::isspace(static_cast<unsigned char>(c));
+        if (is_space) {
+            if (!last_was_space) collapsed.push_back(' ');
+        } else {
+            collapsed.push_back(c);
+        }
+        last_was_space = is_space;
+    }
+    while (!collapsed.empty() && collapsed.back() == ' ') collapsed.pop_back();
+    return collapsed;
 }
 
 }  // namespace
@@ -135,7 +213,7 @@ bool VnExpressNewsService::FetchLatestNews(const std::string& category, int limi
         return false;
     }
 
-    std::string body = ReadBodyCapped(http.get());
+    std::string body = ReadBodyCapped(http.get(), kMaxBodyBytes);
     http->Close();
 
     if (body.empty()) {
@@ -171,5 +249,74 @@ bool VnExpressNewsService::FetchLatestNews(const std::string& category, int limi
 
     ESP_LOGI(TAG, "Parsed %d VnExpress articles for category '%s'",
              static_cast<int>(out_items.size()), category.c_str());
+    return true;
+}
+
+bool VnExpressNewsService::FetchArticleDetail(const std::string& url, std::string& out_content,
+                                               std::string& out_error) {
+    out_content.clear();
+
+    if (url.empty()) {
+        out_error = "Empty article URL";
+        return false;
+    }
+
+    ESP_LOGI(TAG, "Fetching article detail: %s", url.c_str());
+
+    auto& board = Board::GetInstance();
+    auto network = board.GetNetwork();
+    auto http = network->CreateHttp(0);
+    if (!http) {
+        out_error = "Failed to create HTTP connection";
+        return false;
+    }
+    http->SetTimeout(kHttpTimeoutMs);
+    http->SetHeader("Accept", "text/html");
+
+    auto opened = http->Open("GET", url);
+    if (!opened) {
+        out_error = "Failed to connect to article URL: " + opened.error().ToString();
+        return false;
+    }
+
+    auto status_code = http->GetStatusCode();
+    if (!status_code || *status_code != 200) {
+        int code = status_code ? *status_code : -1;
+        http->Close();
+        out_error = "Article request failed with status " + std::to_string(code);
+        return false;
+    }
+
+    std::string html = ReadBodyCapped(http.get(), kDetailMaxBodyBytes);
+    http->Close();
+
+    if (html.empty()) {
+        out_error = "Article page returned an empty response";
+        return false;
+    }
+
+    // Narrow to the <article>...</article> body when present so nav/footer/related-links chrome
+    // doesn't get dragged into the extracted text.
+    std::string scoped = html;
+    size_t body_start = html.find("<article");
+    if (body_start != std::string::npos) {
+        size_t body_end = html.find("</article>", body_start);
+        if (body_end != std::string::npos) {
+            scoped = html.substr(body_start, body_end - body_start);
+        }
+    }
+
+    std::string content = StripHtml(scoped);
+    if (content.size() > kDetailMaxContentChars) {
+        content.resize(kDetailMaxContentChars);
+    }
+
+    if (content.size() < 80) {
+        out_error = "Could not extract article content (the page's structure may have changed)";
+        return false;
+    }
+
+    out_content = std::move(content);
+    ESP_LOGI(TAG, "Extracted %d chars of article content", static_cast<int>(out_content.size()));
     return true;
 }

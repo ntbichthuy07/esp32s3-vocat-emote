@@ -32,6 +32,22 @@ void NewsMcpTool::Initialize() {
             return HandleGetLatestNews(properties);
         });
 
+    mcp_server.AddTool(
+        "self.news.get_article_detail",
+        "Get the full readable text of a VnExpress article, given its `url` (as returned by "
+        "self.news.get_latest_vnexpress). Use this when the user asks to hear more about one of "
+        "the headlines, e.g. 'doc chi tiet bai so 2' or 'noi ro hon ve tin do'.\n"
+        "Args:\n"
+        "  `url`: The article's URL, exactly as returned in a previous get_latest_vnexpress call.\n"
+        "Return:\n"
+        "  A JSON object with the `url` and the extracted article `content`.",
+        PropertyList({
+            Property("url", kPropertyTypeString),
+        }),
+        [](const PropertyList& properties) -> ToolResult {
+            return HandleGetArticleDetail(properties);
+        });
+
     ESP_LOGI(TAG, "NewsMcpTool initialized");
 }
 
@@ -68,6 +84,25 @@ ToolResult NewsMcpTool::HandleGetLatestNews(const PropertyList& properties) {
         cJSON_AddStringToObject(article, "published", item.pub_date.c_str());
         cJSON_AddItemToArray(articles, article);
     }
+
+    return root;
+}
+
+ToolResult NewsMcpTool::HandleGetArticleDetail(const PropertyList& properties) {
+    auto url = properties["url"].value<std::string>();
+
+    std::string content;
+    std::string error;
+    if (!VnExpressNewsService::FetchArticleDetail(url, content, error)) {
+        return std::unexpected(error);
+    }
+
+    cJSON* root = cJSON_CreateObject();
+    if (root == nullptr) {
+        return std::unexpected("Failed to allocate JSON result");
+    }
+    cJSON_AddStringToObject(root, "url", url.c_str());
+    cJSON_AddStringToObject(root, "content", content.c_str());
 
     return root;
 }
