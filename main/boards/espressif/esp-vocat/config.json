@@ -8,7 +8,11 @@
              "sdkconfig_append": [
                  "CONFIG_USE_EMOTE_MESSAGE_STYLE=y",
                  "CONFIG_MMAP_FILE_NAME_LENGTH=32",
-                 "CONFIG_FLASH_EXPRESSION_ASSETS=y"
+                 "CONFIG_FLASH_EXPRESSION_ASSETS=y",
+                 "CONFIG_USE_AFE_WAKE_WORD=y",
+                 "CONFIG_SR_WN_WN9_NIHAOXIAOZHI_TTS=n",
+                 "CONFIG_SR_WN_WN9_HIMIAOMIAO_TTS=y",
+                 "CONFIG_LANGUAGE_EN_US=y"
              ]
         }
     ]

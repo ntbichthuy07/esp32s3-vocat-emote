@@ -90,14 +90,23 @@ bool CustomWakeWord::Initialize(AudioCodec* codec, srmodel_list_t* models_list) 
         language_ = "cn";
         models_ = esp_srmodel_init("model");
         owns_models_ = models_ != nullptr;
-#ifdef CONFIG_CUSTOM_WAKE_WORD
-        threshold_ = CONFIG_CUSTOM_WAKE_WORD_THRESHOLD / 100.0f;
-        commands_.push_back({CONFIG_CUSTOM_WAKE_WORD, CONFIG_CUSTOM_WAKE_WORD_DISPLAY, "wake"});
-#endif
     } else {
         models_ = models_list;
         ParseWakenetModelConfig();
     }
+
+#ifdef CONFIG_CUSTOM_WAKE_WORD
+    // ParseWakenetModelConfig() only populates commands_ when the assets
+    // partition's index.json carries a "multinet_model.commands" list.
+    // Nothing currently generates that (see esp_emote_assets' build_all.py),
+    // so on the AfeAudioEngine path (models_list always non-null there)
+    // commands_ stayed empty and CONFIG_CUSTOM_WAKE_WORD was never used.
+    // Fall back to it whenever no commands were found in the assets.
+    if (commands_.empty()) {
+        threshold_ = CONFIG_CUSTOM_WAKE_WORD_THRESHOLD / 100.0f;
+        commands_.push_back({CONFIG_CUSTOM_WAKE_WORD, CONFIG_CUSTOM_WAKE_WORD_DISPLAY, "wake"});
+    }
+#endif
 
     if (models_ == nullptr || models_->num == -1) {
         ESP_LOGE(TAG, "Failed to initialize wakenet model");
