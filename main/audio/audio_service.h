@@ -132,6 +132,7 @@ public:
         return xEventGroupGetBits(event_group_) & AS_EVENT_AUDIO_PROCESSOR_RUNNING;
     }
     bool IsAfeWakeWord();
+    bool CanDetectDuringPlayback();
 
     void EnableWakeWordDetection(bool enable);
     void ReleaseWakeWordResources();

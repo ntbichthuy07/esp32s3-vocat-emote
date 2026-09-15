@@ -26,6 +26,12 @@ public:
     virtual bool IsWakeWordDetectionEnabled() const = 0;
     virtual bool IsVoiceProcessingEnabled() const = 0;
     virtual bool IsAfeWakeWord() const = 0;
+    // True only for a detector precise/low-false-accept enough to stay armed
+    // while the device's own speaker is playing (e.g. dedicated WakeNet).
+    // MultiNet/CustomWakeWord command-spotting is prone to matching residual,
+    // imperfectly-AEC-cancelled echo of the device's own TTS output, so it
+    // must not report true here.
+    virtual bool CanDetectDuringPlayback() const = 0;
     virtual size_t GetFeedSize() const = 0;
 
     virtual void OnWakeWordDetected(std::function<void(const std::string& wake_word)> callback) = 0;

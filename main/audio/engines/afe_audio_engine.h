@@ -36,6 +36,7 @@ public:
     bool IsWakeWordDetectionEnabled() const override;
     bool IsVoiceProcessingEnabled() const override;
     bool IsAfeWakeWord() const override { return HasWakeWord(); }
+    bool CanDetectDuringPlayback() const override { return wake_detector_ == WakeDetector::kWakeNet; }
     size_t GetFeedSize() const override;
 
     void OnWakeWordDetected(std::function<void(const std::string& wake_word)> callback) override;

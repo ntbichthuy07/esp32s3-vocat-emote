@@ -864,6 +864,10 @@ bool AudioService::IsAfeWakeWord() {
     return audio_engine_initialized_ && audio_engine_->IsAfeWakeWord();
 }
 
+bool AudioService::CanDetectDuringPlayback() {
+    return audio_engine_initialized_ && audio_engine_->CanDetectDuringPlayback();
+}
+
 bool AudioService::InitializeAudioEngine() {
     if (!audio_engine_) {
         return false;

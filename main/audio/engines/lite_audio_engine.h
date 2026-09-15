@@ -28,6 +28,7 @@ public:
     bool IsWakeWordDetectionEnabled() const override;
     bool IsVoiceProcessingEnabled() const override;
     bool IsAfeWakeWord() const override { return false; }
+    bool CanDetectDuringPlayback() const override { return false; }
     size_t GetFeedSize() const override;
 
     // Release the standalone WakeNet allocation while it cannot be used, then
