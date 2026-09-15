@@ -5,6 +5,7 @@
 #include "board.h"
 #include "display.h"
 #include "services/news/news_mcp_tool.h"
+#include "services/radio/radio_mcp_tool.h"
 #include "services/search/web_search_mcp_tool.h"
 #include "mcp_server.h"
 #include "mqtt_protocol.h"
@@ -22,7 +23,7 @@
 
 #define TAG "Application"
 
-Application::Application() : notify_player_(audio_service_) {
+Application::Application() : notify_player_(audio_service_), radio_service_(audio_service_) {
     event_group_ = xEventGroupCreate();
 
 #if CONFIG_USE_DEVICE_AEC && CONFIG_USE_SERVER_AEC
@@ -108,6 +109,7 @@ void Application::Initialize() {
     mcp_server.AddUserOnlyTools();
     NewsMcpTool::Initialize();
     WebSearchMcpTool::Initialize();
+    RadioMcpTool::Initialize();
 
     // Set network event callback for UI updates and network state handling
     board.SetNetworkEventCallback([this](NetworkEvent event, const std::string& data) {
@@ -902,6 +904,18 @@ void Application::HandleWakeWordDetectedEvent() {
     auto wake_word = audio_service_.GetLastWakeWord();
     ESP_LOGI(TAG, "Wake word detected: %s (state: %d)", wake_word.c_str(), (int)state);
 
+    // A live radio stream keeps playing across ordinary conversation turns
+    // (see VovRadioService), so it isn't stopped on every automatic
+    // speaking->listening transition -- but a wake word firing is different:
+    // it's either the user deliberately starting a new interaction, or the
+    // radio's own audio being misheard as the wake phrase (CustomWakeWord
+    // isn't robust against the device's own speaker output; see
+    // AudioEngine::CanDetectDuringPlayback). Either way the radio should stop
+    // here -- otherwise a false trigger can re-trigger itself off its own
+    // audio in a loop that never gives a real voice command a clean window.
+    // Non-blocking: this runs on the main event loop.
+    radio_service_.Stop(false);
+
     if (state == kDeviceStateIdle) {
         BeginWakeWordInvoke(wake_word);
     } else if (state == kDeviceStateNotifying) {
@@ -1003,6 +1017,11 @@ void Application::HandleStateChangedEvent() {
     auto led = board.GetLed();
     led->OnStateChanged();
 
+    // Restore full radio volume by default; only kDeviceStateListening ducks
+    // it back down (see the comment there), so this keeps the two in sync on
+    // every other transition without needing an un-duck call in each case.
+    radio_service_.SetDucked(false);
+
     switch (new_state) {
         case kDeviceStateUnknown:
         case kDeviceStateIdle:
@@ -1026,6 +1045,13 @@ void Application::HandleStateChangedEvent() {
         case kDeviceStateListening:
             display->SetStatus(Lang::Strings::LISTENING);
             display->SetEmotion("neutral");
+
+            // Duck any live radio stream while actively capturing/transcribing
+            // a command -- this board's AEC alone isn't reliable enough to
+            // keep the radio's own speech out of what gets transcribed as
+            // "the user said" otherwise (observed picking up VOV's own
+            // sign-off line verbatim as a user utterance).
+            radio_service_.SetDucked(true);
 
             // Make sure the audio processor is running
             if (play_popup_on_listening_ || !audio_service_.IsAudioProcessorRunning()) {

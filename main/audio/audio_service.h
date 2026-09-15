@@ -143,6 +143,11 @@ public:
     void SetCallbacks(AudioServiceCallbacks& callbacks);
 
     bool PushPacketToDecodeQueue(std::unique_ptr<AudioStreamPacket> packet, bool wait = false);
+    // Pushes already-decoded PCM straight to the playback queue, bypassing the
+    // Opus decode step. For external streaming sources (e.g. internet radio)
+    // that decode their own codec and just need I2S output at codec->output_sample_rate()/
+    // output_channels(). Blocks until space is available when `wait` is true.
+    bool PushPcmToPlaybackQueue(std::vector<int16_t>&& pcm, bool wait = true);
     std::unique_ptr<AudioStreamPacket> PopPacketFromSendQueue();
     void PlaySound(const std::string_view& sound);
     bool ReadAudioData(std::vector<int16_t>& data, int sample_rate, int samples);

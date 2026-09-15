@@ -20,6 +20,7 @@
 #include "device_state.h"
 #include "device_state_machine.h"
 #include "notify/notify_player.h"
+#include "services/radio/vov_radio_service.h"
 
 // Main event bits
 #define MAIN_EVENT_SCHEDULE             (1 << 0)
@@ -118,6 +119,7 @@ public:
     AecMode GetAecMode() const { return aec_mode_; }
     void PlaySound(const std::string_view& sound);
     AudioService& GetAudioService() { return audio_service_; }
+    VovRadioService& GetRadioService() { return radio_service_; }
     
     /**
      * Reset protocol resources (thread-safe)
@@ -141,6 +143,7 @@ private:
     std::string last_error_message_;
     AudioService audio_service_;
     NotifyPlayer notify_player_;
+    VovRadioService radio_service_;
     uint32_t notification_playback_id_ = 0;
     std::unique_ptr<Ota> ota_;
 

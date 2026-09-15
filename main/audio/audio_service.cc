@@ -628,6 +628,42 @@ bool AudioService::PushPacketToDecodeQueue(std::unique_ptr<AudioStreamPacket> pa
     return true;
 }
 
+bool AudioService::PushPcmToPlaybackQueue(std::vector<int16_t>&& pcm, bool wait) {
+    if (pcm.empty()) {
+        return true;
+    }
+    std::unique_lock<std::mutex> lock(audio_queue_mutex_);
+    // Unlike PushPacketToDecodeQueue, this does NOT gate on playback_generation_:
+    // that counter exists so a ResetDecoder() call (e.g. every time the
+    // assistant starts speaking) discards stale in-flight *assistant* audio
+    // from before the reset. An external live source (e.g. internet radio)
+    // has no such notion of "stale" -- ResetDecoder() clearing the queue once
+    // is fine (a brief blip), but gating on generation would make every
+    // future push from this caller silently fail forever after the first
+    // ResetDecoder() anywhere in the app, permanently and silently killing
+    // playback. Only an actual AudioService::Stop() should end this.
+    if (audio_playback_queue_.size() >= MAX_PLAYBACK_TASKS_IN_QUEUE) {
+        if (wait) {
+            audio_queue_cv_.wait(lock, [this]() {
+                return service_stopped_.load() ||
+                       audio_playback_queue_.size() < MAX_PLAYBACK_TASKS_IN_QUEUE;
+            });
+        } else {
+            return false;
+        }
+    }
+    if (service_stopped_.load()) {
+        return false;
+    }
+    AudioTask task;
+    task.type = kAudioTaskTypeDecodeToPlaybackQueue;
+    task.pcm = std::move(pcm);
+    playback_drained_notified_ = false;
+    audio_playback_queue_.push_back(std::move(task));
+    audio_queue_cv_.notify_all();
+    return true;
+}
+
 std::unique_ptr<AudioStreamPacket> AudioService::PopPacketFromSendQueue() {
     std::lock_guard<std::mutex> lock(audio_queue_mutex_);
     if (audio_send_queue_.empty()) {
