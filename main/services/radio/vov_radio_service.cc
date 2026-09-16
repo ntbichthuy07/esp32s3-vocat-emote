@@ -52,11 +52,11 @@ constexpr size_t kPrebufferSegments = 2;
 // actively listening for a command (see VovRadioService::SetDucked). Quiet
 // enough that it stops dominating what the mic picks up, not fully muted so
 // there's still an audible "something's still on" cue.
-constexpr float kDuckedVolumeScale = 0.12f;
-// Radio playback is boosted 50% above the shared speaker volume (requested
+constexpr float kDuckedVolumeScale = 0.5f;
+// Radio playback is boosted 2x above the shared speaker volume (requested
 // because the stream sounded quiet relative to TTS/notifications at the same
 // volume setting).
-constexpr float kNormalVolumeScale = 1.7f;
+constexpr float kNormalVolumeScale = 2.0f;
 
 const char* TAG = "VovRadio";
 
