@@ -12,8 +12,9 @@
                  "CONFIG_USE_AFE_WAKE_WORD=y",
                  "CONFIG_SR_WN_WN9_NIHAOXIAOZHI_TTS=n",
                  "CONFIG_SR_WN_WN9_HIMIAOMIAO_TTS=y",
-                 "CONFIG_SR_WN_WN9L_HEYGIGI_TTS3=y",
-                 "CONFIG_LANGUAGE_EN_US=y"
+                 "CONFIG_SR_WN_WN9_NIHAOMIAOBAN_TTS2=n",
+                 "CONFIG_LANGUAGE_EN_US=y",
+                 "CONFIG_WAKE_WORD_DETECTION_IN_LISTENING=y"
              ]
         }
     ]

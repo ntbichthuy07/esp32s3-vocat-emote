@@ -1207,11 +1207,11 @@ if(CONFIG_BOARD_TYPE_ESP_VOCAT)
              DESTINATION "${ESP_VOCAT_ASSETS_STAGING}/emoji_large")
         file(COPY "${CMAKE_CURRENT_SOURCE_DIR}/boards/espressif/esp-vocat/emoji/battery_connected.eaf"
              DESTINATION "${ESP_VOCAT_ASSETS_STAGING}/emoji_large")
-        # Override the component's default WakeNet-only srmodels.bin with a
-        # MultiNet-only one (packed from managed_components/espressif__esp-sr's
-        # mn6_en) so AfeAudioEngine picks WakeDetector::kMultiNet and
-        # CustomWakeWord's CONFIG_CUSTOM_WAKE_WORD phrase is used instead of the
-        # fixed WakeNet phrase (see pack_model.py in scripts/spiffs_assets).
+        # Override the component's default srmodels.bin with one packed to
+        # contain only the "Hi Miao Miao" WakeNet model (wn9_himiaomiao_tts
+        # from managed_components/espressif__esp-sr) so AfeAudioEngine picks
+        # WakeDetector::kWakeNet with this fixed phrase (see pack_model.py in
+        # scripts/spiffs_assets).
         file(COPY "${CMAKE_CURRENT_SOURCE_DIR}/boards/espressif/esp-vocat/wakenet/srmodels.bin"
              DESTINATION "${ESP_VOCAT_ASSETS_STAGING}/wakenet")
         set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS

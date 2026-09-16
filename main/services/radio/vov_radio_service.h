@@ -80,7 +80,9 @@ private:
     std::string display_name_;
     TaskHandle_t task_handle_ = nullptr;
     bool playing_ = false;
-    std::atomic<float> volume_scale_{1.0f};
+    // Default matches kNormalVolumeScale in vov_radio_service.cc (1.7x boost);
+    // kept as a literal here since that constant is file-local to the .cc.
+    std::atomic<float> volume_scale_{1.7f};
     // Bumped by every Play()/Stop(); a worker task keeps running only while
     // this still equals the value it was handed at creation. This both
     // signals an explicit Stop() and lets a new Play() supersede whatever

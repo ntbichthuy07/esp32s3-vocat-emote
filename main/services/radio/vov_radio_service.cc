@@ -53,6 +53,10 @@ constexpr size_t kPrebufferSegments = 2;
 // enough that it stops dominating what the mic picks up, not fully muted so
 // there's still an audible "something's still on" cue.
 constexpr float kDuckedVolumeScale = 0.12f;
+// Radio playback is boosted 50% above the shared speaker volume (requested
+// because the stream sounded quiet relative to TTS/notifications at the same
+// volume setting).
+constexpr float kNormalVolumeScale = 1.7f;
 
 const char* TAG = "VovRadio";
 
@@ -488,8 +492,8 @@ private:
 
         if (converted.empty() || should_stop_()) return;
 
-        float scale = volume_scale_ ? volume_scale_->load() : 1.0f;
-        if (scale < 0.999f) {
+        float scale = volume_scale_ ? volume_scale_->load() : kNormalVolumeScale;
+        if (scale < 0.999f || scale > 1.001f) {
             for (auto& sample : converted) {
                 int scaled = static_cast<int>(static_cast<float>(sample) * scale);
                 sample = static_cast<int16_t>(std::clamp(scaled, -32768, 32767));
@@ -773,10 +777,19 @@ const std::vector<RadioStation>& BuiltInStations() {
         {"vov1", "VOV1", "https://str.vov.gov.vn/vovlive/vov1vov5Vietnamese.sdp_aac/playlist.m3u8"},
         {"vov2", "VOV2", "https://str.vov.gov.vn/vovlive/vov2.sdp_aac/playlist.m3u8"},
         {"vov3", "VOV3", "https://str.vov.gov.vn/vovlive/vov3.sdp_aac/playlist.m3u8"},
-        {"vov_giao_thong_ha_noi", "VOV Giao Thong Ha Noi",
-         "https://str.vov.gov.vn/vovlive/vovGTHN.sdp_aac/chunklist_w601606653.m3u8"},
+        // {"vov_giao_thong_ha_noi", "VOV Giao Thong Ha Noi",
+        //  "https://str.vov.gov.vn/vovlive/vovGTHN.sdp_aac/chunklist_w601606653.m3u8"},
         {"vov_giao_thong_tphcm", "VOV Giao Thong TPHCM",
          "https://str.vov.gov.vn/vovlive/vovGTHCM.sdp_aac/chunklist_w1213978008.m3u8"},
+        {"vov_tieng_anh_24_7", "VOV Tieng Anh 24/7", "https://audio-lss.vov.vn/live/vov24_7.m3u8"},
+        {"voh_fm95_6", "VOH FM 95.6 MHz",
+         "https://1011337676.vnns.net/-eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9."
+         "eyJ1cmkiOiIvaHR2Yy9WT0gtRk05NS42LmFkbS50bXMvIiwiZXhwIjoxOTI0OTI1MjI4fQ."
+         "isr2nlUkXOPGSxT-KT8FcZQFCcXn58RZrCyqoB3zDGg-/htvc/VOH-FM95.6.adm.tms/playlist.m3u8"},
+        {"voh_fm99_9", "VOH FM 99.9 MHz",
+         "https://1011337676.vnns.net/-eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9."
+         "eyJ1cmkiOiIvaHR2Yy9WT0gtRk05OS45LmFkbS50bXMvIiwiZXhwIjoxOTI0OTI1MjI4fQ."
+         "zVLoKcCW3tFLySpEQHcYh11PHIxk2ZE1pj5P-GFIm1I-/htvc/VOH-FM99.9.adm.tms/chunks.m3u8"},
     };
     return kStations;
 }
@@ -877,7 +890,7 @@ std::string VovRadioService::CurrentStationName() const {
 }
 
 void VovRadioService::SetDucked(bool ducked) {
-    volume_scale_.store(ducked ? kDuckedVolumeScale : 1.0f);
+    volume_scale_.store(ducked ? kDuckedVolumeScale : kNormalVolumeScale);
 }
 
 // The producer/download half of the pipeline (see DecodeTaskEntry for the

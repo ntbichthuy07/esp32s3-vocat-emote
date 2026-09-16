@@ -781,6 +781,10 @@ private:
                     if (app.GetDeviceState() == kDeviceStateStarting) {
                         board.EnterWifiConfigMode();
                     } else {
+                        // The radio stream otherwise keeps playing across
+                        // ordinary conversation turns (see VovRadioService),
+                        // but a deliberate screen touch should always stop it.
+                        app.GetRadioService().Stop(false);
                         app.ToggleChatState();
                     }
                 }
