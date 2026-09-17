@@ -17,13 +17,15 @@
 // this script only ever compares plain "YYYY-MM-DD" strings -- it doesn't need to know the
 // device's timezone or today's date itself.
 //
-// A second sheet, "Budgets" (Category | MonthlyLimit), holds one row per category with a budget
-// set via self.finance.set_budget; it's created automatically on first use, no manual setup
-// needed.
+// Budgets live in the same "Transactions" sheet, columns I (Category) and J (MonthlyLimit) --
+// one row per category with a budget set via self.finance.set_budget, independent of how many
+// transaction rows exist in A:E. Columns F-H are left blank as a buffer. The I:J header is
+// written automatically on first use, no manual setup needed.
 
 var SHARED_SECRET = "CHANGE_ME";
 var SHEET_NAME = "Transactions";
-var BUDGETS_SHEET_NAME = "Budgets";
+var BUDGET_CATEGORY_COL = 9;   // I
+var BUDGET_LIMIT_COL = 10;     // J
 var MAX_LIST_LIMIT = 30;
 var BUDGET_WARNING_THRESHOLD = 0.8;   // >= 80% spent
 var BUDGET_EXCEEDED_THRESHOLD = 1.0;  // >= 100% spent
@@ -62,7 +64,7 @@ function doPost(e) {
       case "get_category_summary":
         return getCategorySummary(sheet, body);
       case "set_budget":
-        return setBudget(body);
+        return setBudget(sheet, body);
       case "get_budget":
         return getBudget(sheet, body);
       default:
@@ -73,7 +75,8 @@ function doPost(e) {
   }
 }
 
-// Columns: A=ID, B=Date, C=Amount, D=Category, E=Note.
+// Columns: A=ID, B=Date, C=Amount, D=Category, E=Note. F-H are left blank; I=BudgetCategory,
+// J=MonthlyLimit hold the budget rows (see findBudgetRow below).
 
 // Falls back to "other" for anything not in ALLOWED_CATEGORIES (including old free-text
 // categories from before this list existed), so category summaries never fragment into one-off
@@ -212,43 +215,59 @@ function getCategorySummary(sheet, body) {
   return jsonResponse({ok: true, categories: categories});
 }
 
-// Budgets sheet columns: A=Category, B=MonthlyLimit. One row per category; set_budget upserts.
-function setBudget(body) {
+// Budget columns I (Category) and J (MonthlyLimit) on the Transactions sheet, one row per
+// category, laid out independently of how far column A's transaction rows currently reach.
+// Returns {row, nextRow}: `row` is the existing row for `category` (-1 if not set yet), and
+// `nextRow` is where a new category should be appended (right after the last budget row found,
+// not tied to the sheet's overall last row -- so adding a budget never skips down to wherever
+// the transaction rows happen to end).
+function findBudgetRow(sheet, category) {
+  var lastRow = sheet.getLastRow();
+  if (lastRow < 2) return {row: -1, nextRow: 2};
+  var values = sheet.getRange(2, BUDGET_CATEGORY_COL, lastRow - 1, 1).getValues();
+  var lastBudgetRow = 1;  // header row = "no budget rows yet"
+  for (var i = 0; i < values.length; i++) {
+    var cell = String(values[i][0] || "");
+    if (cell === category) return {row: i + 2, nextRow: -1};
+    if (cell !== "") lastBudgetRow = i + 2;
+  }
+  return {row: -1, nextRow: lastBudgetRow + 1};
+}
+
+function ensureBudgetHeaders(sheet) {
+  var header = sheet.getRange(1, BUDGET_CATEGORY_COL, 1, 2).getValues()[0];
+  if (header[0] !== "BudgetCategory" || header[1] !== "MonthlyLimit") {
+    sheet.getRange(1, BUDGET_CATEGORY_COL, 1, 2).setValues([["BudgetCategory", "MonthlyLimit"]]);
+  }
+}
+
+function setBudget(sheet, body) {
   var category = normalizeCategory(body.category);
   var limit = Number(body.limit) || 0;
-  var sheet = getOrCreateSheet(BUDGETS_SHEET_NAME, ["Category", "MonthlyLimit"]);
-  var data = sheet.getDataRange().getValues();
-  for (var i = 1; i < data.length; i++) {
-    if (String(data[i][0]) === category) {
-      sheet.getRange(i + 1, 2).setValue(limit);
-      return jsonResponse({ok: true, category: category, limit: limit});
-    }
+  ensureBudgetHeaders(sheet);
+  var found = findBudgetRow(sheet, category);
+  if (found.row !== -1) {
+    sheet.getRange(found.row, BUDGET_LIMIT_COL).setValue(limit);
+  } else {
+    sheet.getRange(found.nextRow, BUDGET_CATEGORY_COL, 1, 2).setValues([[category, limit]]);
   }
-  sheet.appendRow([category, limit]);
   return jsonResponse({ok: true, category: category, limit: limit});
 }
 
 // `start`/`end` are "YYYY-MM-DD" strings forming a half-open range over the Transactions sheet.
-function getBudget(transactionsSheet, body) {
+function getBudget(sheet, body) {
   var category = normalizeCategory(body.category);
   var start = String(body.start || "");
   var end = String(body.end || "");
 
-  var budgetsSheet = getOrCreateSheet(BUDGETS_SHEET_NAME, ["Category", "MonthlyLimit"]);
-  var budgetData = budgetsSheet.getDataRange().getValues();
-  var limit = null;
-  for (var i = 1; i < budgetData.length; i++) {
-    if (String(budgetData[i][0]) === category) {
-      limit = Number(budgetData[i][1]) || 0;
-      break;
-    }
-  }
-  if (limit === null) {
+  var found = findBudgetRow(sheet, category);
+  if (found.row === -1) {
     return jsonResponse({ok: false, error: "no budget set for category: " + category});
   }
+  var limit = Number(sheet.getRange(found.row, BUDGET_LIMIT_COL).getValue()) || 0;
 
   // Expense categories are stored negative (see normalizeAmount) -- "spent" is the magnitude.
-  var spent = Math.abs(categoryTotalInRange(transactionsSheet, category, start, end));
+  var spent = Math.abs(categoryTotalInRange(sheet, category, start, end));
   var remaining = limit - spent;
   var percentage = limit > 0 ? (spent / limit) * 100 : 0;
   var status = percentage >= BUDGET_EXCEEDED_THRESHOLD * 100 ? "exceeded" :
@@ -270,16 +289,6 @@ function categoryTotalInRange(sheet, category, start, end) {
     total += Number(data[i][2]) || 0;
   }
   return total;
-}
-
-function getOrCreateSheet(name, headers) {
-  var spreadsheet = SpreadsheetApp.getActiveSpreadsheet();
-  var sheet = spreadsheet.getSheetByName(name);
-  if (!sheet) {
-    sheet = spreadsheet.insertSheet(name);
-    sheet.appendRow(headers);
-  }
-  return sheet;
 }
 
 function generateId() {

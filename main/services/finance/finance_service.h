@@ -53,8 +53,8 @@ struct FinanceAddResult {
     int amount = 0;
 };
 
-// A category's monthly budget status, as computed by the Apps Script from the Budgets sheet plus
-// that category's spending for the period.
+// A category's monthly budget status, as computed by the Apps Script from the budget columns
+// (I:J on the Transactions sheet) plus that category's spending for the period.
 struct FinanceBudgetStatus {
     std::string category;
     long long budget = 0;     // VND, as configured via SetBudget
