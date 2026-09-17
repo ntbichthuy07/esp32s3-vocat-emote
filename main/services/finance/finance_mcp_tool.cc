@@ -12,11 +12,11 @@ namespace {
 constexpr const char* kCategoryHelp =
     "Exactly one of: expense categories `food`, `transport`, `shopping`, `housing`, "
     "`utilities`, `health`, `entertainment`, `education`, `travel`, `subscriptions`, `family`, "
-    "`personal`; income categories `salary`, `bonus`, `freelance`, `investment`, `gift`, "
-    "`refund`; or `other` for anything else. Map the user's spoken category (in any language) "
-    "to the closest one, e.g. 'an uong'/'com nuoc' -> `food`, 'di lai'/'xang xe' -> `transport`, "
-    "'hoa don dien nuoc' -> `utilities`, 'thue nha' -> `housing`, 'luong' -> `salary`. Defaults "
-    "to `other` if nothing fits.";
+    "`personal`, `savings`; income categories `salary`, `bonus`, `freelance`, `investment`, "
+    "`gift`, `refund`; or `other` for anything else. Map the user's spoken category (in any "
+    "language) to the closest one, e.g. 'an uong'/'com nuoc' -> `food`, 'di lai'/'xang xe' -> "
+    "`transport`, 'hoa don dien nuoc' -> `utilities`, 'thue nha' -> `housing`, 'luong' -> "
+    "`salary`. Defaults to `other` if nothing fits.";
 
 constexpr const char* kPeriodHelp =
     "One of `today`, `yesterday`, `week` (Monday-Sunday containing today), `month` (the "
@@ -240,6 +240,76 @@ void FinanceMcpTool::Initialize() {
         }),
         [](const PropertyList& properties) -> ToolResult {
             return HandleComparePeriods(properties);
+        });
+
+    mcp_server.AddTool(
+        "self.finance.add_savings_goal",
+        "Create a new named savings goal with a target amount. Use this when the user wants to "
+        "start saving towards something, e.g. 'tao muc tieu tiet kiem mua xe may 20 trieu' "
+        "(create a savings goal to buy a motorbike, 20 million) or 'de danh mua laptop moi, han "
+        "cuoi nam nay' (save up for a new laptop, deadline end of this year). Convert the spoken "
+        "amount to a plain VND integer yourself (20 trieu -> 20000000).\n"
+        "Args:\n"
+        "  `name`: Short name for the goal, e.g. the original phrase like 'mua xe may'. Must be "
+        "unique -- fails if a goal with this exact name already exists.\n"
+        "  `target_amount`: The savings target in VND.\n"
+        "  `deadline`: Optional explicit `YYYY-MM-DD` the user wants to hit the target by. Leave "
+        "empty if no deadline was mentioned.\n"
+        "Return:\n"
+        "  A JSON object confirming the goal was created.",
+        PropertyList({
+            Property("name", kPropertyTypeString),
+            Property("target_amount", kPropertyTypeInteger, 0, 2000000000),
+            Property("deadline", kPropertyTypeString, std::string("")),
+        }),
+        [](const PropertyList& properties) -> ToolResult {
+            return HandleAddSavingsGoal(properties);
+        });
+
+    mcp_server.AddTool(
+        "self.finance.get_savings_goal",
+        "Get one savings goal's progress. Use this when the user asks how a specific goal is "
+        "doing, e.g. 'toi tiet kiem duoc bao nhieu cho muc tieu mua xe may roi' (how much have I "
+        "saved for the motorbike goal).\n"
+        "Args:\n"
+        "  `name`: The goal's exact name, as given to self.finance.add_savings_goal.\n"
+        "Return:\n"
+        "  A JSON object with `target`, `saved`, `remaining` (all VND), `percentage`, "
+        "`completed`, `deadline` (empty if none), and `completed_date` (empty if not filled in "
+        "yet). Fails if no goal exists with that name.",
+        PropertyList({
+            Property("name", kPropertyTypeString),
+        }),
+        [](const PropertyList& properties) -> ToolResult {
+            return HandleGetSavingsGoal(properties);
+        });
+
+    mcp_server.AddTool(
+        "self.finance.list_savings_goals",
+        "List every savings goal and its progress. Use this when the user asks to see all their "
+        "savings goals, e.g. 'toi dang co nhung muc tieu tiet kiem nao' (what savings goals do I "
+        "have). Summarize in speech instead of reading every field, unless asked for detail.\n"
+        "Return:\n"
+        "  A JSON object with `goals`, a list of `{name, target, saved, remaining, percentage, "
+        "completed, deadline, completed_date}`.",
+        PropertyList(),
+        [](const PropertyList& properties) -> ToolResult {
+            return HandleListSavingsGoals(properties);
+        });
+
+    mcp_server.AddTool(
+        "self.finance.delete_savings_goal",
+        "Delete a savings goal by name. Use this when the user asks to remove a goal, e.g. 'xoa "
+        "muc tieu tiet kiem mua xe may' (delete the motorbike savings goal).\n"
+        "Args:\n"
+        "  `name`: The goal's exact name, as given to self.finance.add_savings_goal.\n"
+        "Return:\n"
+        "  A JSON object confirming the deletion.",
+        PropertyList({
+            Property("name", kPropertyTypeString),
+        }),
+        [](const PropertyList& properties) -> ToolResult {
+            return HandleDeleteSavingsGoal(properties);
         });
 
     ESP_LOGI(TAG, "FinanceMcpTool initialized");
@@ -466,5 +536,104 @@ ToolResult FinanceMcpTool::HandleComparePeriods(const PropertyList& properties) 
     cJSON_AddNumberToObject(root, "value_b", static_cast<double>(comparison.value_b));
     cJSON_AddNumberToObject(root, "difference", static_cast<double>(comparison.difference));
     cJSON_AddNumberToObject(root, "percent_change", comparison.percent_change);
+    return root;
+}
+
+namespace {
+
+cJSON* SavingsGoalToJson(const FinanceSavingsGoal& goal) {
+    cJSON* root = cJSON_CreateObject();
+    if (root == nullptr) return nullptr;
+    cJSON_AddStringToObject(root, "name", goal.name.c_str());
+    cJSON_AddNumberToObject(root, "target", static_cast<double>(goal.target));
+    cJSON_AddNumberToObject(root, "saved", static_cast<double>(goal.saved));
+    cJSON_AddNumberToObject(root, "remaining", static_cast<double>(goal.remaining));
+    cJSON_AddNumberToObject(root, "percentage", goal.percentage);
+    cJSON_AddBoolToObject(root, "completed", goal.completed);
+    cJSON_AddStringToObject(root, "deadline", goal.deadline.c_str());
+    cJSON_AddStringToObject(root, "completed_date", goal.completed_date.c_str());
+    return root;
+}
+
+}  // namespace
+
+ToolResult FinanceMcpTool::HandleAddSavingsGoal(const PropertyList& properties) {
+    auto name = properties["name"].value<std::string>();
+    auto target_amount = properties["target_amount"].value<int>();
+    auto deadline = properties["deadline"].value<std::string>();
+
+    std::string error;
+    if (!FinanceService::AddSavingsGoal(name, target_amount, deadline, error)) {
+        return std::unexpected(error);
+    }
+
+    cJSON* root = cJSON_CreateObject();
+    if (root == nullptr) {
+        return std::unexpected("Failed to allocate JSON result");
+    }
+    cJSON_AddBoolToObject(root, "created", true);
+    cJSON_AddStringToObject(root, "name", name.c_str());
+    cJSON_AddNumberToObject(root, "target", target_amount);
+    return root;
+}
+
+ToolResult FinanceMcpTool::HandleGetSavingsGoal(const PropertyList& properties) {
+    auto name = properties["name"].value<std::string>();
+
+    FinanceSavingsGoal goal;
+    std::string error;
+    if (!FinanceService::GetSavingsGoal(name, goal, error)) {
+        return std::unexpected(error);
+    }
+
+    cJSON* root = SavingsGoalToJson(goal);
+    if (root == nullptr) {
+        return std::unexpected("Failed to allocate JSON result");
+    }
+    return root;
+}
+
+ToolResult FinanceMcpTool::HandleListSavingsGoals(const PropertyList& properties) {
+    FinanceSavingsGoalList list;
+    std::string error;
+    if (!FinanceService::ListSavingsGoals(list, error)) {
+        return std::unexpected(error);
+    }
+
+    cJSON* root = cJSON_CreateObject();
+    if (root == nullptr) {
+        return std::unexpected("Failed to allocate JSON result");
+    }
+
+    cJSON* goals = cJSON_CreateArray();
+    if (goals == nullptr) {
+        cJSON_Delete(root);
+        return std::unexpected("Failed to allocate JSON result");
+    }
+    cJSON_AddItemToObject(root, "goals", goals);
+
+    for (const auto& goal : list.goals) {
+        cJSON* item = SavingsGoalToJson(goal);
+        if (item == nullptr) continue;
+        cJSON_AddItemToArray(goals, item);
+    }
+
+    return root;
+}
+
+ToolResult FinanceMcpTool::HandleDeleteSavingsGoal(const PropertyList& properties) {
+    auto name = properties["name"].value<std::string>();
+
+    std::string error;
+    if (!FinanceService::DeleteSavingsGoal(name, error)) {
+        return std::unexpected(error);
+    }
+
+    cJSON* root = cJSON_CreateObject();
+    if (root == nullptr) {
+        return std::unexpected("Failed to allocate JSON result");
+    }
+    cJSON_AddBoolToObject(root, "deleted", true);
+    cJSON_AddStringToObject(root, "name", name.c_str());
     return root;
 }

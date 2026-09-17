@@ -21,20 +21,38 @@
 // one row per category with a budget set via self.finance.set_budget, independent of how many
 // transaction rows exist in A:E. The F:G header is written automatically on first use, no manual
 // setup needed.
+//
+// Savings goals live in the same sheet too, columns J (ID) through P (CompletedDate) -- one row
+// per goal, independent of A:E and F:G, header auto-written on first use like the budget one.
+// SavedAmount (column M) and CompletedDate (column P) are not updated by any tool -- fill them
+// in directly on the sheet as money is set aside / a goal is finished. A goal is "completed"
+// once SavedAmount >= TargetAmount (derived on read, not stored; CompletedDate is a separate,
+// purely informational field the user fills in by hand). Deleting a goal clears only its J:P
+// cells (never a full-row delete, which would also wipe out whatever unrelated transaction or
+// budget happens to share that row index).
 
 var SHARED_SECRET = "CHANGE_ME";
 var SHEET_NAME = "Transactions";
 var BUDGET_CATEGORY_COL = 6;   // F
 var BUDGET_LIMIT_COL = 7;      // G
+var GOAL_ID_COL = 10;          // J
+var GOAL_NAME_COL = 11;        // K
+var GOAL_TARGET_COL = 12;      // L
+var GOAL_SAVED_COL = 13;       // M
+var GOAL_DEADLINE_COL = 14;    // N
+var GOAL_CREATED_COL = 15;     // O
+var GOAL_COMPLETED_DATE_COL = 16;  // P
 var MAX_LIST_LIMIT = 30;
 var BUDGET_WARNING_THRESHOLD = 0.8;   // >= 80% spent
 var BUDGET_EXCEEDED_THRESHOLD = 1.0;  // >= 100% spent
 
 // "other" is shared between the two; everything else is unambiguously expense or income, which
 // lets addTransaction/updateTransaction auto-correct the amount's sign to match the category.
+// "savings" is money leaving spendable cash to be set aside, so it's treated as an expense like
+// everything else here.
 var EXPENSE_CATEGORIES = ["food", "transport", "shopping", "housing", "utilities", "health",
                            "entertainment", "education", "travel", "subscriptions", "family",
-                           "personal"];
+                           "personal", "savings"];
 var INCOME_CATEGORIES = ["salary", "bonus", "freelance", "investment", "gift", "refund"];
 var ALLOWED_CATEGORIES = EXPENSE_CATEGORIES.concat(INCOME_CATEGORIES).concat(["other"]);
 
@@ -67,6 +85,14 @@ function doPost(e) {
         return setBudget(sheet, body);
       case "get_budget":
         return getBudget(sheet, body);
+      case "add_savings_goal":
+        return addSavingsGoal(sheet, body);
+      case "get_savings_goal":
+        return getSavingsGoal(sheet, body);
+      case "list_savings_goals":
+        return listSavingsGoals(sheet, body);
+      case "delete_savings_goal":
+        return deleteSavingsGoal(sheet, body);
       default:
         return jsonResponse({ok: false, error: "unknown action: " + body.action});
     }
@@ -289,6 +315,116 @@ function categoryTotalInRange(sheet, category, start, end) {
     total += Number(data[i][2]) || 0;
   }
   return total;
+}
+
+// Savings goal columns J (ID) through P (CompletedDate) on the Transactions sheet, one row per
+// goal, laid out independently of the transaction rows in A:E and the budget rows in F:G.
+// Returns {row, nextRow}: `row` is the existing row for `name` (-1 if no such goal), and
+// `nextRow` is where a new goal should be appended (right after the last goal row found, not
+// tied to the sheet's overall last row).
+function findGoalRow(sheet, name) {
+  var lastRow = sheet.getLastRow();
+  if (lastRow < 2) return {row: -1, nextRow: 2};
+  var values = sheet.getRange(2, GOAL_NAME_COL, lastRow - 1, 1).getValues();
+  var lastGoalRow = 1;  // header row = "no goal rows yet"
+  for (var i = 0; i < values.length; i++) {
+    var cell = String(values[i][0] || "");
+    if (cell === name) return {row: i + 2, nextRow: -1};
+    if (cell !== "") lastGoalRow = i + 2;
+  }
+  return {row: -1, nextRow: lastGoalRow + 1};
+}
+
+function ensureGoalHeaders(sheet) {
+  var expected = ["ID", "SavingGoal", "TargetAmount", "SavedAmount", "Deadline", "CreatedDate",
+                   "CompletedDate"];
+  var header = sheet.getRange(1, GOAL_ID_COL, 1, expected.length).getValues()[0];
+  for (var i = 0; i < expected.length; i++) {
+    if (header[i] !== expected[i]) {
+      sheet.getRange(1, GOAL_ID_COL, 1, expected.length).setValues([expected]);
+      return;
+    }
+  }
+}
+
+function addSavingsGoal(sheet, body) {
+  var name = String(body.name || "").trim();
+  if (!name) {
+    return jsonResponse({ok: false, error: "missing name"});
+  }
+  ensureGoalHeaders(sheet);
+  var found = findGoalRow(sheet, name);
+  if (found.row !== -1) {
+    return jsonResponse({ok: false, error: "savings goal already exists: " + name});
+  }
+  var target = Number(body.target_amount) || 0;
+  var deadline = String(body.deadline || "");
+  var id = generateId();
+  var created = isoDateTimeOf(new Date()).substring(0, 10);
+  sheet.getRange(found.nextRow, GOAL_ID_COL, 1, 7)
+      .setValues([[id, name, target, 0, deadline, created, ""]]);
+  return jsonResponse({ok: true, id: id, name: name, target: target, deadline: deadline});
+}
+
+function getSavingsGoal(sheet, body) {
+  var name = String(body.name || "").trim();
+  if (!name) {
+    return jsonResponse({ok: false, error: "missing name"});
+  }
+  var found = findGoalRow(sheet, name);
+  if (found.row === -1) {
+    return jsonResponse({ok: false, error: "no savings goal named: " + name});
+  }
+  var row = sheet.getRange(found.row, GOAL_ID_COL, 1, 7).getValues()[0];
+  var target = Number(row[2]) || 0;
+  var saved = Number(row[3]) || 0;
+  var deadline = String(row[4] || "");
+  var completedDate = String(row[6] || "");
+  var percentage = target > 0 ? (saved / target) * 100 : 0;
+  return jsonResponse({ok: true, name: name, target: target, saved: saved,
+                        remaining: target - saved, percentage: percentage,
+                        completed: target > 0 && saved >= target, deadline: deadline,
+                        completed_date: completedDate});
+}
+
+function listSavingsGoals(sheet, body) {
+  var lastRow = sheet.getLastRow();
+  var goals = [];
+  if (lastRow >= 2) {
+    var values = sheet.getRange(2, GOAL_ID_COL, lastRow - 1, 7).getValues();
+    for (var i = 0; i < values.length; i++) {
+      var name = String(values[i][1] || "");
+      if (!name) continue;  // cleared (deleted) goal row
+      var target = Number(values[i][2]) || 0;
+      var saved = Number(values[i][3]) || 0;
+      goals.push({
+        name: name,
+        target: target,
+        saved: saved,
+        remaining: target - saved,
+        percentage: target > 0 ? (saved / target) * 100 : 0,
+        completed: target > 0 && saved >= target,
+        deadline: String(values[i][4] || ""),
+        completed_date: String(values[i][6] || "")
+      });
+    }
+  }
+  return jsonResponse({ok: true, goals: goals});
+}
+
+function deleteSavingsGoal(sheet, body) {
+  var name = String(body.name || "").trim();
+  if (!name) {
+    return jsonResponse({ok: false, error: "missing name"});
+  }
+  var found = findGoalRow(sheet, name);
+  if (found.row === -1) {
+    return jsonResponse({ok: false, error: "no savings goal named: " + name});
+  }
+  // Clears only the J:P cells for this row -- never deleteRow(), which would also delete
+  // whatever unrelated transaction (A:E) or budget (F:G) happens to share this row index.
+  sheet.getRange(found.row, GOAL_ID_COL, 1, 7).clearContent();
+  return jsonResponse({ok: true, deleted: true});
 }
 
 function generateId() {
