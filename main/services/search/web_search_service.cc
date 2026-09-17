@@ -9,13 +9,12 @@
 #include "cjson_utils.h"
 #include "network_error.h"
 
+#include "../service_config.h"
+
 #define TAG "WebSearchService"
 
 namespace {
 
-// Tavily (https://tavily.com) API key. Free tier is around 1000 searches/month. Sign up at
-// tavily.com to get your own key and swap it in here if this one is revoked or exhausted.
-constexpr const char* kTavilyApiKey = "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";
 constexpr const char* kTavilyUrl = "https://api.tavily.com/search";
 
 constexpr int kHttpTimeoutMs = 20000;

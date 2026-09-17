@@ -4,6 +4,7 @@
 #include "audio_codec.h"
 #include "board.h"
 #include "display.h"
+#include "services/finance/finance_mcp_tool.h"
 #include "services/news/news_mcp_tool.h"
 #include "services/radio/radio_mcp_tool.h"
 #include "services/search/web_search_mcp_tool.h"
@@ -110,6 +111,7 @@ void Application::Initialize() {
     NewsMcpTool::Initialize();
     WebSearchMcpTool::Initialize();
     RadioMcpTool::Initialize();
+    FinanceMcpTool::Initialize();
 
     // Set network event callback for UI updates and network state handling
     board.SetNetworkEventCallback([this](NetworkEvent event, const std::string& data) {
