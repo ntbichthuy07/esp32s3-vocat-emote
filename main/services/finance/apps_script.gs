@@ -17,15 +17,15 @@
 // this script only ever compares plain "YYYY-MM-DD" strings -- it doesn't need to know the
 // device's timezone or today's date itself.
 //
-// Budgets live in the same "Transactions" sheet, columns I (Category) and J (MonthlyLimit) --
+// Budgets live in the same "Transactions" sheet, columns F (Category) and G (MonthlyLimit) --
 // one row per category with a budget set via self.finance.set_budget, independent of how many
-// transaction rows exist in A:E. Columns F-H are left blank as a buffer. The I:J header is
-// written automatically on first use, no manual setup needed.
+// transaction rows exist in A:E. The F:G header is written automatically on first use, no manual
+// setup needed.
 
 var SHARED_SECRET = "CHANGE_ME";
 var SHEET_NAME = "Transactions";
-var BUDGET_CATEGORY_COL = 9;   // I
-var BUDGET_LIMIT_COL = 10;     // J
+var BUDGET_CATEGORY_COL = 6;   // F
+var BUDGET_LIMIT_COL = 7;      // G
 var MAX_LIST_LIMIT = 30;
 var BUDGET_WARNING_THRESHOLD = 0.8;   // >= 80% spent
 var BUDGET_EXCEEDED_THRESHOLD = 1.0;  // >= 100% spent
@@ -75,8 +75,8 @@ function doPost(e) {
   }
 }
 
-// Columns: A=ID, B=Date, C=Amount, D=Category, E=Note. F-H are left blank; I=BudgetCategory,
-// J=MonthlyLimit hold the budget rows (see findBudgetRow below).
+// Columns: A=ID, B=Date, C=Amount, D=Category, E=Note. F=BudgetCategory, G=MonthlyLimit hold
+// the budget rows (see findBudgetRow below).
 
 // Falls back to "other" for anything not in ALLOWED_CATEGORIES (including old free-text
 // categories from before this list existed), so category summaries never fragment into one-off
@@ -215,7 +215,7 @@ function getCategorySummary(sheet, body) {
   return jsonResponse({ok: true, categories: categories});
 }
 
-// Budget columns I (Category) and J (MonthlyLimit) on the Transactions sheet, one row per
+// Budget columns F (Category) and G (MonthlyLimit) on the Transactions sheet, one row per
 // category, laid out independently of how far column A's transaction rows currently reach.
 // Returns {row, nextRow}: `row` is the existing row for `category` (-1 if not set yet), and
 // `nextRow` is where a new category should be appended (right after the last budget row found,
