@@ -21,10 +21,10 @@ private:
     static ToolResult HandleSetBudget(const PropertyList& properties);
     static ToolResult HandleGetBudget(const PropertyList& properties);
     static ToolResult HandleComparePeriods(const PropertyList& properties);
-    static ToolResult HandleAddSavingsGoal(const PropertyList& properties);
-    static ToolResult HandleGetSavingsGoal(const PropertyList& properties);
-    static ToolResult HandleListSavingsGoals(const PropertyList& properties);
-    static ToolResult HandleDeleteSavingsGoal(const PropertyList& properties);
+    static ToolResult HandleAddFundingGoal(const PropertyList& properties);
+    static ToolResult HandleGetFundingGoal(const PropertyList& properties);
+    static ToolResult HandleListFundingGoals(const PropertyList& properties);
+    static ToolResult HandleDeleteFundingGoal(const PropertyList& properties);
 };
 
 #endif  // FINANCE_MCP_TOOL_H

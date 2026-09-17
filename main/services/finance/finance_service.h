@@ -64,23 +64,26 @@ struct FinanceBudgetStatus {
     std::string status;       // "ok" (<80%), "warning" (>=80%), or "exceeded" (>=100%)
 };
 
-// A savings goal's progress, as computed by the Apps Script from the goal columns (J:P on the
+// A funding goal's progress, as computed by the Apps Script from the goal columns (J:P on the
 // Transactions sheet). `completed` is derived (saved >= target), not stored. `saved` and
 // `completed_date` are filled in directly on the sheet as money is set aside / a goal is
-// finished -- no tool updates them.
-struct FinanceSavingsGoal {
+// finished -- no tool updates them. `id` (e.g. "F1") is what self.finance.add_transaction's
+// `description` should reference to link a transaction back to this goal -- see
+// FUNDING_GOAL_SAVED in apps_script.gs, which matches on this id rather than on `name`.
+struct FinanceFundingGoal {
+    std::string id;
     std::string name;
-    long long target = 0;     // VND
-    long long saved = 0;      // VND
-    long long remaining = 0;  // VND, target - saved
-    double percentage = 0;    // saved / target * 100
+    long long target = 0;      // VND
+    long long saved = 0;       // VND
+    long long remaining = 0;   // VND, target - saved
+    double percentage = 0;     // saved / target * 100
     bool completed = false;
     std::string deadline;        // "YYYY-MM-DD", or empty if none was set
     std::string completed_date;  // "YYYY-MM-DD", or empty if not filled in yet
 };
 
-struct FinanceSavingsGoalList {
-    std::vector<FinanceSavingsGoal> goals;
+struct FinanceFundingGoalList {
+    std::vector<FinanceFundingGoal> goals;
 };
 
 // The result of comparing one metric (a category's total, or overall expense if `category` is
@@ -158,24 +161,26 @@ public:
                                 const std::string& category,
                                 FinancePeriodComparison& out_comparison, std::string& out_error);
 
-    // Creates a new savings goal named `name` with the given target amount and optional
-    // "YYYY-MM-DD" deadline (empty for none). Returns true on success; false and out_error
-    // otherwise (e.g. a goal with that name already exists).
-    static bool AddSavingsGoal(const std::string& name, long long target_amount,
-                                const std::string& deadline, std::string& out_error);
-
-    // Fetches one savings goal's progress by name. Returns true and fills out_goal on success;
-    // false and out_error otherwise (e.g. no such goal).
-    static bool GetSavingsGoal(const std::string& name, FinanceSavingsGoal& out_goal,
+    // Creates a new funding goal named `name` with the given target amount and optional
+    // "YYYY-MM-DD" deadline (empty for none). Returns true and fills out_goal (in particular its
+    // new `id`, e.g. "F1") on success; false and out_error otherwise (e.g. a goal with that name
+    // already exists).
+    static bool AddFundingGoal(const std::string& name, long long target_amount,
+                                const std::string& deadline, FinanceFundingGoal& out_goal,
                                 std::string& out_error);
 
-    // Fetches every savings goal's progress. Returns true and fills out_list on success (empty
-    // if there are no goals); false and out_error otherwise.
-    static bool ListSavingsGoals(FinanceSavingsGoalList& out_list, std::string& out_error);
+    // Fetches one funding goal's progress by name. Returns true and fills out_goal on success;
+    // false and out_error otherwise (e.g. no such goal).
+    static bool GetFundingGoal(const std::string& name, FinanceFundingGoal& out_goal,
+                                std::string& out_error);
 
-    // Deletes the savings goal named `name`. Returns true on success; false and out_error
+    // Fetches every funding goal's progress. Returns true and fills out_list on success (empty
+    // if there are no goals); false and out_error otherwise.
+    static bool ListFundingGoals(FinanceFundingGoalList& out_list, std::string& out_error);
+
+    // Deletes the funding goal named `name`. Returns true on success; false and out_error
     // otherwise (e.g. no such goal).
-    static bool DeleteSavingsGoal(const std::string& name, std::string& out_error);
+    static bool DeleteFundingGoal(const std::string& name, std::string& out_error);
 };
 
 #endif  // FINANCE_SERVICE_H

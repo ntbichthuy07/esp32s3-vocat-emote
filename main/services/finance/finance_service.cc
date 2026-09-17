@@ -738,7 +738,8 @@ bool FinanceService::ComparePeriods(const std::string& period_a, const std::stri
 
 namespace {
 
-void ParseSavingsGoal(cJSON* response, FinanceSavingsGoal& out_goal) {
+void ParseFundingGoal(cJSON* response, FinanceFundingGoal& out_goal) {
+    auto id = cJSON_GetObjectItem(response, "id");
     auto target = cJSON_GetObjectItem(response, "target");
     auto saved = cJSON_GetObjectItem(response, "saved");
     auto remaining = cJSON_GetObjectItem(response, "remaining");
@@ -747,6 +748,7 @@ void ParseSavingsGoal(cJSON* response, FinanceSavingsGoal& out_goal) {
     auto deadline = cJSON_GetObjectItem(response, "deadline");
     auto completed_date = cJSON_GetObjectItem(response, "completed_date");
 
+    out_goal.id = cJSON_IsString(id) ? id->valuestring : "";
     out_goal.target = cJSON_IsNumber(target) ? static_cast<long long>(target->valuedouble) : 0;
     out_goal.saved = cJSON_IsNumber(saved) ? static_cast<long long>(saved->valuedouble) : 0;
     out_goal.remaining =
@@ -759,10 +761,11 @@ void ParseSavingsGoal(cJSON* response, FinanceSavingsGoal& out_goal) {
 
 }  // namespace
 
-bool FinanceService::AddSavingsGoal(const std::string& name, long long target_amount,
-                                     const std::string& deadline, std::string& out_error) {
+bool FinanceService::AddFundingGoal(const std::string& name, long long target_amount,
+                                     const std::string& deadline, FinanceFundingGoal& out_goal,
+                                     std::string& out_error) {
     if (name.empty()) {
-        out_error = "Missing savings goal name";
+        out_error = "Missing funding goal name";
         return false;
     }
 
@@ -772,35 +775,13 @@ bool FinanceService::AddSavingsGoal(const std::string& name, long long target_am
         return false;
     }
     cJSON_AddStringToObject(request.get(), "token", kFinanceApiSecret);
-    cJSON_AddStringToObject(request.get(), "action", "add_savings_goal");
+    cJSON_AddStringToObject(request.get(), "action", "add_funding_goal");
     cJSON_AddStringToObject(request.get(), "name", name.c_str());
     cJSON_AddNumberToObject(request.get(), "target_amount", static_cast<double>(target_amount));
     cJSON_AddStringToObject(request.get(), "deadline", deadline.c_str());
 
-    ESP_LOGI(TAG, "Creating savings goal %s: target %lld, deadline %s", name.c_str(),
+    ESP_LOGI(TAG, "Creating funding goal %s: target %lld, deadline %s", name.c_str(),
              target_amount, deadline.empty() ? "none" : deadline.c_str());
-
-    CJsonUniquePtr response;
-    return CallAppsScript(request.get(), response, out_error);
-}
-
-bool FinanceService::GetSavingsGoal(const std::string& name, FinanceSavingsGoal& out_goal,
-                                     std::string& out_error) {
-    if (name.empty()) {
-        out_error = "Missing savings goal name";
-        return false;
-    }
-
-    CJsonUniquePtr request(cJSON_CreateObject());
-    if (!request) {
-        out_error = "Failed to allocate finance request";
-        return false;
-    }
-    cJSON_AddStringToObject(request.get(), "token", kFinanceApiSecret);
-    cJSON_AddStringToObject(request.get(), "action", "get_savings_goal");
-    cJSON_AddStringToObject(request.get(), "name", name.c_str());
-
-    ESP_LOGI(TAG, "Getting savings goal %s", name.c_str());
 
     CJsonUniquePtr response;
     if (!CallAppsScript(request.get(), response, out_error)) {
@@ -808,11 +789,39 @@ bool FinanceService::GetSavingsGoal(const std::string& name, FinanceSavingsGoal&
     }
 
     out_goal.name = name;
-    ParseSavingsGoal(response.get(), out_goal);
+    ParseFundingGoal(response.get(), out_goal);
     return true;
 }
 
-bool FinanceService::ListSavingsGoals(FinanceSavingsGoalList& out_list, std::string& out_error) {
+bool FinanceService::GetFundingGoal(const std::string& name, FinanceFundingGoal& out_goal,
+                                     std::string& out_error) {
+    if (name.empty()) {
+        out_error = "Missing funding goal name";
+        return false;
+    }
+
+    CJsonUniquePtr request(cJSON_CreateObject());
+    if (!request) {
+        out_error = "Failed to allocate finance request";
+        return false;
+    }
+    cJSON_AddStringToObject(request.get(), "token", kFinanceApiSecret);
+    cJSON_AddStringToObject(request.get(), "action", "get_funding_goal");
+    cJSON_AddStringToObject(request.get(), "name", name.c_str());
+
+    ESP_LOGI(TAG, "Getting funding goal %s", name.c_str());
+
+    CJsonUniquePtr response;
+    if (!CallAppsScript(request.get(), response, out_error)) {
+        return false;
+    }
+
+    out_goal.name = name;
+    ParseFundingGoal(response.get(), out_goal);
+    return true;
+}
+
+bool FinanceService::ListFundingGoals(FinanceFundingGoalList& out_list, std::string& out_error) {
     out_list.goals.clear();
 
     CJsonUniquePtr request(cJSON_CreateObject());
@@ -821,9 +830,9 @@ bool FinanceService::ListSavingsGoals(FinanceSavingsGoalList& out_list, std::str
         return false;
     }
     cJSON_AddStringToObject(request.get(), "token", kFinanceApiSecret);
-    cJSON_AddStringToObject(request.get(), "action", "list_savings_goals");
+    cJSON_AddStringToObject(request.get(), "action", "list_funding_goals");
 
-    ESP_LOGI(TAG, "Listing savings goals");
+    ESP_LOGI(TAG, "Listing funding goals");
 
     CJsonUniquePtr response;
     if (!CallAppsScript(request.get(), response, out_error)) {
@@ -835,18 +844,18 @@ bool FinanceService::ListSavingsGoals(FinanceSavingsGoalList& out_list, std::str
         cJSON* entry;
         cJSON_ArrayForEach(entry, goals) {
             auto name = cJSON_GetObjectItem(entry, "name");
-            FinanceSavingsGoal goal;
+            FinanceFundingGoal goal;
             goal.name = cJSON_IsString(name) ? name->valuestring : "";
-            ParseSavingsGoal(entry, goal);
+            ParseFundingGoal(entry, goal);
             out_list.goals.push_back(std::move(goal));
         }
     }
     return true;
 }
 
-bool FinanceService::DeleteSavingsGoal(const std::string& name, std::string& out_error) {
+bool FinanceService::DeleteFundingGoal(const std::string& name, std::string& out_error) {
     if (name.empty()) {
-        out_error = "Missing savings goal name";
+        out_error = "Missing funding goal name";
         return false;
     }
 
@@ -856,10 +865,10 @@ bool FinanceService::DeleteSavingsGoal(const std::string& name, std::string& out
         return false;
     }
     cJSON_AddStringToObject(request.get(), "token", kFinanceApiSecret);
-    cJSON_AddStringToObject(request.get(), "action", "delete_savings_goal");
+    cJSON_AddStringToObject(request.get(), "action", "delete_funding_goal");
     cJSON_AddStringToObject(request.get(), "name", name.c_str());
 
-    ESP_LOGI(TAG, "Deleting savings goal %s", name.c_str());
+    ESP_LOGI(TAG, "Deleting funding goal %s", name.c_str());
 
     CJsonUniquePtr response;
     return CallAppsScript(request.get(), response, out_error);

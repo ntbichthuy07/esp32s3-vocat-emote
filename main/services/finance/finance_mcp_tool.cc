@@ -12,11 +12,13 @@ namespace {
 constexpr const char* kCategoryHelp =
     "Exactly one of: expense categories `food`, `transport`, `shopping`, `housing`, "
     "`utilities`, `health`, `entertainment`, `education`, `travel`, `subscriptions`, `family`, "
-    "`personal`, `savings`; income categories `salary`, `bonus`, `freelance`, `investment`, "
-    "`gift`, `refund`; or `other` for anything else. Map the user's spoken category (in any "
-    "language) to the closest one, e.g. 'an uong'/'com nuoc' -> `food`, 'di lai'/'xang xe' -> "
-    "`transport`, 'hoa don dien nuoc' -> `utilities`, 'thue nha' -> `housing`, 'luong' -> "
-    "`salary`. Defaults to `other` if nothing fits.";
+    "`personal`; income categories `salary`, `bonus`, `freelance`, `investment`, `gift`, "
+    "`refund`; funding categories `savings`, `debt` (unlike every category above, these go "
+    "either direction -- see the `amount` arg below for how to set their sign); or `other` for "
+    "anything else. Map the user's spoken category (in any language) to the closest one, e.g. "
+    "'an uong'/'com nuoc' -> `food`, 'di lai'/'xang xe' -> `transport`, 'hoa don dien nuoc' -> "
+    "`utilities`, 'thue nha' -> `housing`, 'luong' -> `salary`, 'tra no'/'no' -> `debt`. Defaults "
+    "to `other` if nothing fits.";
 
 constexpr const char* kPeriodHelp =
     "One of `today`, `yesterday`, `week` (Monday-Sunday containing today), `month` (the "
@@ -38,11 +40,22 @@ void FinanceMcpTool::Initialize() {
             "(80 nghin -> 80000, 1 trieu 2 -> 1200000).\n"
             "Args:\n"
             "  `amount`: Amount in VND. Positive for income, negative for expense (like a bank "
-            "statement) -- this may be corrected automatically to match the category.\n"
+            "statement) -- this may be corrected automatically to match the category, EXCEPT "
+            "for `savings`/`debt`, whose sign is trusted exactly as given and never "
+            "auto-corrected: negative means money going into savings or paying debt down (goal "
+            "progress increases), positive means withdrawing savings back out or reversing a "
+            "debt payment (goal progress decreases). Get the sign right yourself for those two "
+            "categories -- e.g. 'rut 500 nghin tu tiet kiem mua xe may' (withdraw 500k from the "
+            "motorbike savings) -> category `savings`, amount +500000.\n"
             "  `category`: ") +
             kCategoryHelp +
             "\n"
-            "  `description`: Optional short free-text note, e.g. the original phrase.\n"
+            "  `description`: Optional short free-text note, e.g. the original phrase. If "
+            "`category` is `savings` or `debt` and this money is progress towards an existing "
+            "funding goal, call self.finance.list_funding_goals first and append that goal's "
+            "`id` (e.g. \"F1\") to the end of this description -- keep the rest of the "
+            "description as is, don't replace it -- so the ledger entry can be automatically "
+            "linked back to that goal's tracked progress. Use the `id`, not the goal's name.\n"
             "  `date`: `today` (default), `yesterday`, `day_before_yesterday`, or an explicit "
             "`YYYY-MM-DD` -- use this for phrases like 'hom qua' (yesterday) or 'hom kia' (day "
             "before yesterday). Leave as `today` if no date was mentioned.\n"
@@ -71,9 +84,12 @@ void FinanceMcpTool::Initialize() {
         "change.\n"
         "Args:\n"
         "  `id`: The transaction id to update.\n"
-        "  `amount`: The corrected amount in VND.\n"
+        "  `amount`: The corrected amount in VND. If `category` is `savings`/`debt`, its sign is "
+        "trusted as given -- see self.finance.add_transaction for what each sign means.\n"
         "  `category`: The corrected category -- see self.finance.add_transaction for the list.\n"
-        "  `description`: The corrected (or unchanged) description.\n"
+        "  `description`: The corrected (or unchanged) description. If `category` is `savings` "
+        "or `debt` and it's not already there, append the exact funding goal id to the end -- "
+        "see self.finance.add_transaction.\n"
         "Return:\n"
         "  A JSON object confirming the update.",
         PropertyList({
@@ -243,73 +259,81 @@ void FinanceMcpTool::Initialize() {
         });
 
     mcp_server.AddTool(
-        "self.finance.add_savings_goal",
-        "Create a new named savings goal with a target amount. Use this when the user wants to "
-        "start saving towards something, e.g. 'tao muc tieu tiet kiem mua xe may 20 trieu' "
-        "(create a savings goal to buy a motorbike, 20 million) or 'de danh mua laptop moi, han "
-        "cuoi nam nay' (save up for a new laptop, deadline end of this year). Convert the spoken "
-        "amount to a plain VND integer yourself (20 trieu -> 20000000).\n"
+        "self.finance.add_funding_goal",
+        "Create a new named funding goal with a target amount -- either a savings target (money "
+        "to accumulate towards a purchase, logged via the `savings` transaction category) or a "
+        "debt target (money owed that's being paid off, logged via `debt`). Use this when the "
+        "user wants to start saving towards something or start tracking a debt, e.g. 'tao muc "
+        "tieu tiet kiem mua xe may 20 trieu' (create a funding goal to buy a motorbike, 20 "
+        "million) or 'de danh mua laptop moi, han cuoi nam nay' (save up for a new laptop, "
+        "deadline end of this year) or 'tao khoan tra no the tin dung 10 trieu' (create a "
+        "funding goal to pay off 10 million of credit card debt). Convert the spoken amount to "
+        "a plain VND integer yourself (20 trieu -> 20000000).\n"
         "Args:\n"
         "  `name`: Short name for the goal, e.g. the original phrase like 'mua xe may'. Must be "
         "unique -- fails if a goal with this exact name already exists.\n"
-        "  `target_amount`: The savings target in VND.\n"
+        "  `target_amount`: The savings or debt target in VND.\n"
         "  `deadline`: Optional explicit `YYYY-MM-DD` the user wants to hit the target by. Leave "
         "empty if no deadline was mentioned.\n"
         "Return:\n"
-        "  A JSON object confirming the goal was created.",
+        "  A JSON object confirming the goal was created, including its `id` (e.g. \"F1\") -- "
+        "keep this in mind, since self.finance.add_transaction needs it (not the name) to link a "
+        "transaction back to this goal.",
         PropertyList({
             Property("name", kPropertyTypeString),
             Property("target_amount", kPropertyTypeInteger, 0, 2000000000),
             Property("deadline", kPropertyTypeString, std::string("")),
         }),
         [](const PropertyList& properties) -> ToolResult {
-            return HandleAddSavingsGoal(properties);
+            return HandleAddFundingGoal(properties);
         });
 
     mcp_server.AddTool(
-        "self.finance.get_savings_goal",
-        "Get one savings goal's progress. Use this when the user asks how a specific goal is "
-        "doing, e.g. 'toi tiet kiem duoc bao nhieu cho muc tieu mua xe may roi' (how much have I "
-        "saved for the motorbike goal).\n"
+        "self.finance.get_funding_goal",
+        "Get one funding goal's progress. Use this when the user asks how a specific savings or "
+        "debt goal is doing, e.g. 'toi tiet kiem duoc bao nhieu cho muc tieu mua xe may roi' "
+        "(how much have I saved for the motorbike goal).\n"
         "Args:\n"
-        "  `name`: The goal's exact name, as given to self.finance.add_savings_goal.\n"
+        "  `name`: The goal's exact name, as given to self.finance.add_funding_goal.\n"
         "Return:\n"
-        "  A JSON object with `target`, `saved`, `remaining` (all VND), `percentage`, "
-        "`completed`, `deadline` (empty if none), and `completed_date` (empty if not filled in "
-        "yet). Fails if no goal exists with that name.",
+        "  A JSON object with `id` (e.g. \"F1\" -- what self.finance.add_transaction needs to "
+        "link a transaction to this goal), `target`, `saved`, `remaining` (all VND), "
+        "`percentage`, `completed`, `deadline` (empty if none), and `completed_date` (empty if "
+        "not filled in yet). Fails if no goal exists with that name.",
         PropertyList({
             Property("name", kPropertyTypeString),
         }),
         [](const PropertyList& properties) -> ToolResult {
-            return HandleGetSavingsGoal(properties);
+            return HandleGetFundingGoal(properties);
         });
 
     mcp_server.AddTool(
-        "self.finance.list_savings_goals",
-        "List every savings goal and its progress. Use this when the user asks to see all their "
-        "savings goals, e.g. 'toi dang co nhung muc tieu tiet kiem nao' (what savings goals do I "
-        "have). Summarize in speech instead of reading every field, unless asked for detail.\n"
+        "self.finance.list_funding_goals",
+        "List every funding goal and its progress. Use this when the user asks to see all their "
+        "savings/debt goals, e.g. 'toi dang co nhung muc tieu tiet kiem nao' (what savings goals "
+        "do I have). Summarize in speech instead of reading every field, unless asked for "
+        "detail.\n"
         "Return:\n"
-        "  A JSON object with `goals`, a list of `{name, target, saved, remaining, percentage, "
-        "completed, deadline, completed_date}`.",
+        "  A JSON object with `goals`, a list of `{id, name, target, saved, remaining, "
+        "percentage, completed, deadline, completed_date}`.",
         PropertyList(),
         [](const PropertyList& properties) -> ToolResult {
-            return HandleListSavingsGoals(properties);
+            return HandleListFundingGoals(properties);
         });
 
     mcp_server.AddTool(
-        "self.finance.delete_savings_goal",
-        "Delete a savings goal by name. Use this when the user asks to remove a goal, e.g. 'xoa "
-        "muc tieu tiet kiem mua xe may' (delete the motorbike savings goal).\n"
+        "self.finance.delete_funding_goal",
+        "Delete a funding goal by name. Use this when the user asks to remove a goal, e.g. 'xoa "
+        "muc tieu tiet kiem mua xe may' (delete the motorbike funding goal).\n"
         "Args:\n"
-        "  `name`: The goal's exact name, as given to self.finance.add_savings_goal.\n"
+        "  `name`: The goal's exact name, as given to self.finance.add_funding_goal.\n"
         "Return:\n"
         "  A JSON object confirming the deletion.",
         PropertyList({
             Property("name", kPropertyTypeString),
         }),
         [](const PropertyList& properties) -> ToolResult {
-            return HandleDeleteSavingsGoal(properties);
+            return HandleDeleteFundingGoal(properties);
         });
 
     ESP_LOGI(TAG, "FinanceMcpTool initialized");
@@ -541,9 +565,10 @@ ToolResult FinanceMcpTool::HandleComparePeriods(const PropertyList& properties) 
 
 namespace {
 
-cJSON* SavingsGoalToJson(const FinanceSavingsGoal& goal) {
+cJSON* FundingGoalToJson(const FinanceFundingGoal& goal) {
     cJSON* root = cJSON_CreateObject();
     if (root == nullptr) return nullptr;
+    cJSON_AddStringToObject(root, "id", goal.id.c_str());
     cJSON_AddStringToObject(root, "name", goal.name.c_str());
     cJSON_AddNumberToObject(root, "target", static_cast<double>(goal.target));
     cJSON_AddNumberToObject(root, "saved", static_cast<double>(goal.saved));
@@ -557,46 +582,45 @@ cJSON* SavingsGoalToJson(const FinanceSavingsGoal& goal) {
 
 }  // namespace
 
-ToolResult FinanceMcpTool::HandleAddSavingsGoal(const PropertyList& properties) {
+ToolResult FinanceMcpTool::HandleAddFundingGoal(const PropertyList& properties) {
     auto name = properties["name"].value<std::string>();
     auto target_amount = properties["target_amount"].value<int>();
     auto deadline = properties["deadline"].value<std::string>();
 
+    FinanceFundingGoal goal;
     std::string error;
-    if (!FinanceService::AddSavingsGoal(name, target_amount, deadline, error)) {
+    if (!FinanceService::AddFundingGoal(name, target_amount, deadline, goal, error)) {
         return std::unexpected(error);
     }
 
-    cJSON* root = cJSON_CreateObject();
+    cJSON* root = FundingGoalToJson(goal);
     if (root == nullptr) {
         return std::unexpected("Failed to allocate JSON result");
     }
     cJSON_AddBoolToObject(root, "created", true);
-    cJSON_AddStringToObject(root, "name", name.c_str());
-    cJSON_AddNumberToObject(root, "target", target_amount);
     return root;
 }
 
-ToolResult FinanceMcpTool::HandleGetSavingsGoal(const PropertyList& properties) {
+ToolResult FinanceMcpTool::HandleGetFundingGoal(const PropertyList& properties) {
     auto name = properties["name"].value<std::string>();
 
-    FinanceSavingsGoal goal;
+    FinanceFundingGoal goal;
     std::string error;
-    if (!FinanceService::GetSavingsGoal(name, goal, error)) {
+    if (!FinanceService::GetFundingGoal(name, goal, error)) {
         return std::unexpected(error);
     }
 
-    cJSON* root = SavingsGoalToJson(goal);
+    cJSON* root = FundingGoalToJson(goal);
     if (root == nullptr) {
         return std::unexpected("Failed to allocate JSON result");
     }
     return root;
 }
 
-ToolResult FinanceMcpTool::HandleListSavingsGoals(const PropertyList& properties) {
-    FinanceSavingsGoalList list;
+ToolResult FinanceMcpTool::HandleListFundingGoals(const PropertyList& properties) {
+    FinanceFundingGoalList list;
     std::string error;
-    if (!FinanceService::ListSavingsGoals(list, error)) {
+    if (!FinanceService::ListFundingGoals(list, error)) {
         return std::unexpected(error);
     }
 
@@ -613,7 +637,7 @@ ToolResult FinanceMcpTool::HandleListSavingsGoals(const PropertyList& properties
     cJSON_AddItemToObject(root, "goals", goals);
 
     for (const auto& goal : list.goals) {
-        cJSON* item = SavingsGoalToJson(goal);
+        cJSON* item = FundingGoalToJson(goal);
         if (item == nullptr) continue;
         cJSON_AddItemToArray(goals, item);
     }
@@ -621,11 +645,11 @@ ToolResult FinanceMcpTool::HandleListSavingsGoals(const PropertyList& properties
     return root;
 }
 
-ToolResult FinanceMcpTool::HandleDeleteSavingsGoal(const PropertyList& properties) {
+ToolResult FinanceMcpTool::HandleDeleteFundingGoal(const PropertyList& properties) {
     auto name = properties["name"].value<std::string>();
 
     std::string error;
-    if (!FinanceService::DeleteSavingsGoal(name, error)) {
+    if (!FinanceService::DeleteFundingGoal(name, error)) {
         return std::unexpected(error);
     }
 
