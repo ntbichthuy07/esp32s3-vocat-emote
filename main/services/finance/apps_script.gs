@@ -142,29 +142,17 @@ function normalizeAmount(amount, category) {
   return value;
 }
 
-// Finds the highest Transaction ID currently in column A, scanning down from row 2 -- independent
-// of the sheet's overall last row, since that can be pushed further down (or not as far) by the
-// budget/goal rows sharing this sheet. Non-numeric cells (including old random-string IDs from
-// before this scheme) are ignored, so the new sequence starts cleanly at 1 the first time this
-// runs against a sheet that only has old-style IDs. Returns 0 if there are no transactions yet.
-function lastTransactionId(sheet) {
-  var lastRow = sheet.getLastRow();
-  if (lastRow < 2) return 0;
-  var ids = sheet.getRange(2, 1, lastRow - 1, 1).getValues();
-  var maxId = 0;
-  for (var i = 0; i < ids.length; i++) {
-    var id = Number(ids[i][0]);
-    if (!isNaN(id) && id > maxId) maxId = id;
-  }
-  return maxId;
+// Base36 timestamp (millisecond resolution) plus a short random suffix, so ids sort roughly by
+// creation time while staying unique even when two transactions are added within the same
+// millisecond. Unlike the old "scan column A for the max integer, then +1" scheme, this needs no
+// read of the sheet before appending, so concurrent Apps Script executions can't race each other
+// into computing the same next id.
+function generateTransactionId() {
+  return Date.now().toString(36) + Math.random().toString(36).substring(2, 6);
 }
 
 function addTransaction(sheet, body) {
-  // A plain incrementing integer (1, 2, 3, ...) computed once here, not a formula -- unlike a
-  // funding goal's ID (see addFundingGoal), a transaction row can be permanently removed by
-  // deleteTransaction's deleteRow(), and a live "row above + 1" formula would silently renumber
-  // every transaction below the deleted one, invalidating any id a caller was still holding onto.
-  var id = lastTransactionId(sheet) + 1;
+  var id = generateTransactionId();
   var category = normalizeCategory(body.category);
   var amount = normalizeAmount(body.amount, category);
   // The caller sends a full ISO datetime (see ResolveDate in finance_service.cc), but the
