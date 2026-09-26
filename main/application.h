@@ -20,7 +20,7 @@
 #include "device_state.h"
 #include "device_state_machine.h"
 #include "notify/notify_player.h"
-#include "services/radio/vov_radio_service.h"
+#include "tools/radio/vov_radio_service.h"
 
 // Main event bits
 #define MAIN_EVENT_SCHEDULE             (1 << 0)

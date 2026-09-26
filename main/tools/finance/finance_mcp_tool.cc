@@ -163,7 +163,7 @@ void FinanceMcpTool::Initialize() {
             "  `limit`: Maximum number of transactions to return (1-15). Defaults to 5.\n"
             "Return:\n"
             "  A JSON object with `period`, `count`, and `transactions`, a list of `{id, date, "
-            "amount, category, description}`.",
+            "description, amount, category}`.",
         PropertyList({
             Property("period", kPropertyTypeString, std::string("")),
             Property("limit", kPropertyTypeInteger, 5, 1, 15),
@@ -468,9 +468,9 @@ ToolResult FinanceMcpTool::HandleListTransactions(const PropertyList& properties
         if (item == nullptr) continue;
         cJSON_AddStringToObject(item, "id", transaction.id.c_str());
         cJSON_AddStringToObject(item, "date", transaction.date.c_str());
+        cJSON_AddStringToObject(item, "description", transaction.description.c_str());
         cJSON_AddNumberToObject(item, "amount", static_cast<double>(transaction.amount));
         cJSON_AddStringToObject(item, "category", transaction.category.c_str());
-        cJSON_AddStringToObject(item, "description", transaction.description.c_str());
         cJSON_AddItemToArray(transactions, item);
     }
 

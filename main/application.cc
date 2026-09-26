@@ -4,10 +4,9 @@
 #include "audio_codec.h"
 #include "board.h"
 #include "display.h"
-#include "services/finance/finance_mcp_tool.h"
-#include "services/news/news_mcp_tool.h"
-#include "services/radio/radio_mcp_tool.h"
-#include "services/search/web_search_mcp_tool.h"
+#include "tools/finance/finance_mcp_tool.h"
+#include "tools/radio/radio_mcp_tool.h"
+#include "tools/search/web_search_mcp_tool.h"
 #include "mcp_server.h"
 #include "mqtt_protocol.h"
 #include "settings.h"
@@ -86,6 +85,7 @@ void Application::Initialize() {
         xEventGroupSetBits(event_group_, MAIN_EVENT_WAKE_WORD_DETECTED);
     };
     callbacks.on_vad_change = [this](bool speaking) {
+        ESP_LOGI(TAG, "Local VAD: %s", speaking ? "speech start" : "speech stop");
         xEventGroupSetBits(event_group_, MAIN_EVENT_VAD_CHANGE);
     };
     callbacks.on_playback_drained = [this]() {
@@ -108,7 +108,6 @@ void Application::Initialize() {
     auto& mcp_server = McpServer::GetInstance();
     mcp_server.AddCommonTools();
     mcp_server.AddUserOnlyTools();
-    NewsMcpTool::Initialize();
     WebSearchMcpTool::Initialize();
     RadioMcpTool::Initialize();
     FinanceMcpTool::Initialize();

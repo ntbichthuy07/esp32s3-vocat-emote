@@ -100,7 +100,7 @@ struct FinancePeriodComparison {
 
 // Talks to a Google Apps Script Web App backed by a Google Sheet that acts as the transaction
 // ledger. Deploy apps_script.gs (in this directory) as a Web App and fill in
-// services/service_config.h (copy it from service_config.example.h) before using any method
+// tools/service_config.h (copy it from service_config.example.h) before using any method
 // below.
 class FinanceService {
 public:

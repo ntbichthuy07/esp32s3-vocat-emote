@@ -2,11 +2,11 @@
 //
 // Setup:
 //   1. Create a Google Sheet. Add a first row of headers to the "Transactions" sheet (or rename
-//      Sheet1 to "Transactions"): ID | Date | Amount | Category | Note
+//      Sheet1 to "Transactions"): ID | Date | Note | Amount | Category
 //   2. Extensions > Apps Script, delete the sample code, paste this whole file in as Code.gs.
 //   3. Change SHARED_SECRET below to a random string of your own.
 //   4. Deploy > New deployment > type "Web app". Execute as: Me. Who has access: Anyone.
-//   5. Copy services/service_config.example.h to services/service_config.h (gitignored), then
+//   5. Copy tools/service_config.example.h to tools/service_config.h (gitignored), then
 //      put the resulting URL (ends in /exec) into kFinanceApiUrl there, and the same
 //      SHARED_SECRET into kFinanceApiSecret.
 //   6. Any time you edit this file, go to Deploy > Manage deployments > pencil icon > Version:
@@ -120,7 +120,7 @@ function doPost(e) {
   }
 }
 
-// Columns: A=ID, B=Date, C=Amount, D=Category, E=Note. F=BudgetCategory, G=MonthlyLimit hold
+// Columns: A=ID, B=Date, C=Note, D=Amount, E=Category. F=BudgetCategory, G=MonthlyLimit hold
 // the budget rows (see findBudgetRow below).
 
 // Falls back to "other" for anything not in ALLOWED_CATEGORIES (including old free-text
@@ -160,7 +160,7 @@ function addTransaction(sheet, body) {
   // of day before storing, and format the cell as a plain date so it doesn't display "00:00:00".
   var date = new Date(body.date);
   date.setHours(0, 0, 0, 0);
-  sheet.appendRow([id, date, amount, category, body.note || ""]);
+  sheet.appendRow([id, date, body.note || "", amount, category]);
   sheet.getRange(sheet.getLastRow(), 2).setNumberFormat("yyyy-mm-dd");
   return jsonResponse({ok: true, id: String(id), category: category, amount: amount});
 }
@@ -176,7 +176,7 @@ function updateTransaction(sheet, body) {
       var category = normalizeCategory(body.category);
       var amount = normalizeAmount(body.amount, category);
       var row = i + 1;  // +1: getValues() is 0-indexed, sheet rows are 1-indexed
-      sheet.getRange(row, 3, 1, 3).setValues([[amount, category, body.note || ""]]);
+      sheet.getRange(row, 3, 1, 3).setValues([[body.note || "", amount, category]]);
       return jsonResponse({ok: true, id: id, category: category, amount: amount});
     }
   }
@@ -215,9 +215,9 @@ function listTransactions(sheet, body) {
     rows.push({
       id: String(data[i][0]),
       date: isoDateTime,
-      amount: Number(data[i][2]) || 0,
-      category: String(data[i][3] || ""),
-      note: String(data[i][4] || "")
+      note: String(data[i][2] || ""),
+      amount: Number(data[i][3]) || 0,
+      category: String(data[i][4] || "")
     });
   }
   rows.sort(function(a, b) { return a.date < b.date ? 1 : -1; });  // most recent first
@@ -237,7 +237,7 @@ function getSummary(sheet, body) {
     if (!(date instanceof Date)) continue;
     var isoDate = isoDateTimeOf(date).substring(0, 10);
     if (isoDate < start || isoDate >= end) continue;
-    var amount = Number(data[i][2]) || 0;
+    var amount = Number(data[i][3]) || 0;
     if (amount >= 0) {
       income += amount;
     } else {
@@ -261,12 +261,12 @@ function getCategorySummary(sheet, body) {
     if (!(date instanceof Date)) continue;
     var isoDate = isoDateTimeOf(date).substring(0, 10);
     if (isoDate < start || isoDate >= end) continue;
-    var category = String(data[i][3] || "other");
+    var category = String(data[i][4] || "other");
     if (!totals[category]) {
       totals[category] = {total: 0, count: 0};
       order.push(category);
     }
-    totals[category].total += Number(data[i][2]) || 0;
+    totals[category].total += Number(data[i][3]) || 0;
     totals[category].count++;
   }
   var categories = order.map(function(category) {
@@ -344,10 +344,10 @@ function categoryTotalInRange(sheet, category, start, end) {
   for (var i = 1; i < data.length; i++) {
     var date = data[i][1];
     if (!(date instanceof Date)) continue;
-    if (String(data[i][3] || "other") !== category) continue;
+    if (String(data[i][4] || "other") !== category) continue;
     var isoDate = isoDateTimeOf(date).substring(0, 10);
     if (isoDate < start || isoDate >= end) continue;
-    total += Number(data[i][2]) || 0;
+    total += Number(data[i][3]) || 0;
   }
   return total;
 }
@@ -444,9 +444,9 @@ function FUNDING_GOAL_SAVED(goalId, categories, notes, amounts) {
 // goal's own row, so the id reference ($J<row>) always points back at itself.
 function fundingGoalSavedFormula(row) {
   var idCol = columnLetter(GOAL_ID_COL);
-  var categoryCol = columnLetter(4);  // D, Category
-  var noteCol = columnLetter(5);      // E, Note
-  var amountCol = columnLetter(3);    // C, Amount
+  var categoryCol = columnLetter(5);  // E, Category
+  var noteCol = columnLetter(3);      // C, Note
+  var amountCol = columnLetter(4);    // D, Amount
   var categoryRange = "$" + categoryCol + "$2:$" + categoryCol + "$100000";
   var noteRange = "$" + noteCol + "$2:$" + noteCol + "$100000";
   var amountRange = "$" + amountCol + "$2:$" + amountCol + "$100000";
