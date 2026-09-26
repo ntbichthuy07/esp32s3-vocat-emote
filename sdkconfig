@@ -1236,7 +1236,6 @@ CONFIG_SR_VADN_WEBRTC=y
 # CONFIG_SR_WN_WN9L_JA_KONNICHIHAESP_TTS3 is not set
 # default:
 # CONFIG_SR_WN_WN9L_FR_BONJOURESP_TTS3 is not set
-# default:
 # CONFIG_SR_WN_WN9_NIHAOMIAOBAN_TTS2 is not set
 # default:
 # CONFIG_SR_WN_WN9_XIAOAITONGXUE is not set
@@ -4321,6 +4320,13 @@ CONFIG_SOFTWARE_ESTIMATION_SAMPLE_INTERVAL=20000
 # end of ADC Battery Estimation
 
 #
+# BQ27220 Configuration
+#
+# default:
+CONFIG_BQ27220_SEAL_SETTLE_MS=2000
+# end of BQ27220 Configuration
+
+#
 # IoT Button
 #
 # default:
@@ -4407,6 +4413,8 @@ CONFIG_NT99141_SUPPORT=y
 CONFIG_OV2640_SUPPORT=y
 # default:
 CONFIG_OV3660_SUPPORT=y
+# default:
+CONFIG_OV3640_SUPPORT=y
 # default:
 CONFIG_OV5640_SUPPORT=y
 # default:
@@ -4558,17 +4566,21 @@ CONFIG_AUDIO_ENCODER_G722_SUPPORT=y
 # Select and Set Camera Sensor
 #
 # default:
+# CONFIG_CAMERA_BF20A6 is not set
+# default:
+# CONFIG_CAMERA_BF3031 is not set
+# default:
+# CONFIG_CAMERA_BF3045 is not set
+# default:
 # CONFIG_CAMERA_BF3901 is not set
 # default:
 # CONFIG_CAMERA_BF3925 is not set
 # default:
 # CONFIG_CAMERA_BF3A03 is not set
 # default:
-# CONFIG_CAMERA_BF20A6 is not set
-# default:
-# CONFIG_CAMERA_BF3045 is not set
-# default:
 # CONFIG_CAMERA_GC0308 is not set
+# default:
+# CONFIG_CAMERA_GC032A is not set
 # default:
 # CONFIG_CAMERA_GC2145 is not set
 # default:
@@ -4671,6 +4683,11 @@ CONFIG_CODEC_TAS5805M_SUPPORT=y
 # end of Audio Codec Device Configuration
 
 #
+# Image Effects Configuration
+#
+# end of Image Effects Configuration
+
+#
 # ESP IO Expander
 #
 # default:
@@ -4729,6 +4746,8 @@ CONFIG_ESP_VIDEO_ENABLE_DVP_VIDEO_DEVICE=y
 # CONFIG_ESP_VIDEO_ENABLE_SPI_VIDEO_DEVICE is not set
 # default:
 # CONFIG_ESP_VIDEO_ENABLE_USB_UVC_VIDEO_DEVICE is not set
+# default:
+# CONFIG_ESP_VIDEO_USE_CUSTOMIZED_ESP_H264_VERSION is not set
 
 #
 # Video Data Preprocessing
