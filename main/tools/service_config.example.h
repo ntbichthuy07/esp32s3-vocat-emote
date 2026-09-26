@@ -15,4 +15,11 @@ constexpr const char* kFinanceApiUrl =
     "https://script.google.com/macros/s/PUT_YOUR_DEPLOYMENT_ID_HERE/exec";
 constexpr const char* kFinanceApiSecret = "CHANGE_ME";
 
+// tools/english_tutor/english_tutor_service.cc -- Google Apps Script Web App backing the
+// English Tutor's level/topic/mistake tracker. Deploy tools/english_tutor/apps_script.gs as a
+// Web App first -- see the setup steps at the top of that file -- then fill these in.
+constexpr const char* kTutorApiUrl =
+    "https://script.google.com/macros/s/PUT_YOUR_DEPLOYMENT_ID_HERE/exec";
+constexpr const char* kTutorApiSecret = "CHANGE_ME";
+
 #endif  // SERVICES_CONFIG_H
