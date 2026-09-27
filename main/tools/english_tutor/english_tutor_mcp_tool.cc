@@ -9,10 +9,6 @@
 
 namespace {
 
-constexpr const char* kLevelHelp =
-    "1 Beginner, 2 Elementary, 3 Pre-intermediate, 4 Intermediate, 5 Upper-intermediate, "
-    "6 Conversation, 7 Work, 8 Discussion, 9 Advanced, 10 Fluent.";
-
 constexpr const char* kBucketHelp =
     "`weakness` for a grammar/meaning correction, `vocabulary` for a native/idiomatic "
     "expression you handed over (even if what the learner said wasn't wrong).";
@@ -57,24 +53,19 @@ void EnglishTutorMcpTool::Initialize() {
 
     mcp_server.AddTool(
         "self.tutor.start_session",
-        std::string(
-            "Starts a 1-on-1 English practice session. Call this the moment the learner asks "
-            "to practice English (e.g. 'Let's practice English', 'I want to learn English', "
-            "'Luyen tieng Anh'). Returns the learner's current level, a topic to open the "
-            "conversation with (already biased toward their recent recurring weakness, if "
-            "any), and up to 2 old mistakes/expressions due for review -- speak naturally "
-            "using the returned topic/prompts instead of asking the learner what they want to "
-            "talk about; optionally warm up with one due-review item before moving to the "
-            "topic, but don't do this every single session.\n"
-            "Return:\n"
-            "  `level`: integer 1-10. `level_name`: ") +
-            kLevelHelp +
-            "\n"
-            "  `sessions_total`: how many practice sessions the learner has completed so far.\n"
-            "  `topic`: the subject to open with.\n"
-            "  `prompts`: one or more example opening questions for that topic.\n"
-            "  `due_review`: 0-2 items `{id, original, better, category, bucket}` due for "
-            "review today.",
+        "Starts a 1-on-1 English practice session. Call this the moment the learner asks to "
+        "practice English (e.g. 'Let's practice English', 'I want to learn English', 'Luyen "
+        "tieng Anh'). Returns a topic to open the conversation with (already biased toward "
+        "their recent recurring weakness, if any), and up to 2 old mistakes/expressions due "
+        "for review -- speak naturally using the returned topic/prompts instead of asking the "
+        "learner what they want to talk about; optionally warm up with one due-review item "
+        "before moving to the topic, but don't do this every single session.\n"
+        "Return:\n"
+        "  `sessions_total`: how many practice sessions the learner has completed so far.\n"
+        "  `topic`: the subject to open with.\n"
+        "  `prompts`: one or more example opening questions for that topic.\n"
+        "  `due_review`: 0-2 items `{id, original, better, category, bucket}` due for review "
+        "today.",
         PropertyList(),
         [](const PropertyList& properties) -> ToolResult {
             return HandleStartSession(properties);
@@ -149,21 +140,19 @@ void EnglishTutorMcpTool::Initialize() {
         });
 
     mcp_server.AddTool(
-        "self.tutor.set_level",
-        std::string(
-            "Changes the learner's stored practice level. Only call this when the learner "
-            "explicitly asks to change level, or when you suggest it yourself and the learner "
-            "agrees -- never silently.\n"
-            "Args:\n"
-            "  `level`: the new level, 1-10: ") +
-            kLevelHelp +
-            "\n"
-            "Return:\n"
-            "  Confirmation with the new level's name.",
-        PropertyList({
-            Property("level", kPropertyTypeInteger, 1, 10),
-        }),
-        [](const PropertyList& properties) -> ToolResult { return HandleSetLevel(properties); });
+        "self.tutor.get_vocab_word",
+        "Fetches one curated vocabulary word to actively teach the learner, complete with its "
+        "meaning and a couple of example sentences -- use this occasionally to introduce new "
+        "vocabulary mid-conversation, not every session. Weave the word and one example "
+        "naturally into what you say next; don't just read the definition out loud. This is "
+        "separate from self.tutor.log_note(bucket=\"vocabulary\"), which is for expressions "
+        "that come up naturally in the conversation rather than ones you deliberately teach.\n"
+        "Return:\n"
+        "  `word`, `meaning`, `examples` (an array of example sentences).",
+        PropertyList(),
+        [](const PropertyList& properties) -> ToolResult {
+            return HandleGetVocabWord(properties);
+        });
 
     mcp_server.AddTool(
         "self.tutor.end_session",
@@ -184,14 +173,12 @@ void EnglishTutorMcpTool::Initialize() {
 
     mcp_server.AddTool(
         "self.tutor.get_progress",
-        "Fetches the learner's current level, top recurring weakness, vocabulary stats, and "
-        "most recently logged mistakes/expressions. Call this if the learner asks how they're "
-        "doing.\n"
+        "Fetches the learner's top recurring weakness, vocabulary stats, and most recently "
+        "logged mistakes/expressions. Call this if the learner asks how they're doing.\n"
         "Return:\n"
-        "  `level`, `level_name`, `sessions_total`, `top_weakness` (may be empty), "
-        "`vocab_stats` (`{in_review, mastered}`), `recent_mistakes` and `recent_vocabulary` "
-        "(up to 5 each, most recent first, each with `original`/`better`/`explanation`/"
-        "`category`).",
+        "  `sessions_total`, `top_weakness` (may be empty), `vocab_stats` (`{in_review, "
+        "mastered}`), `recent_mistakes` and `recent_vocabulary` (up to 5 each, most recent "
+        "first, each with `original`/`better`/`explanation`/`category`).",
         PropertyList(),
         [](const PropertyList& properties) -> ToolResult {
             return HandleGetProgress(properties);
@@ -211,8 +198,6 @@ ToolResult EnglishTutorMcpTool::HandleStartSession(const PropertyList& propertie
     if (root == nullptr) {
         return std::unexpected("Failed to allocate JSON result");
     }
-    cJSON_AddNumberToObject(root, "level", session.level);
-    cJSON_AddStringToObject(root, "level_name", session.level_name.c_str());
     cJSON_AddNumberToObject(root, "sessions_total", session.sessions_total);
     cJSON_AddStringToObject(root, "topic", session.topic.c_str());
 
@@ -288,11 +273,10 @@ ToolResult EnglishTutorMcpTool::HandleRecordReview(const PropertyList& propertie
     return root;
 }
 
-ToolResult EnglishTutorMcpTool::HandleSetLevel(const PropertyList& properties) {
-    auto level = properties["level"].value<int>();
-
-    std::string level_name, error;
-    if (!EnglishTutorService::SetLevel(level, level_name, error)) {
+ToolResult EnglishTutorMcpTool::HandleGetVocabWord(const PropertyList& properties) {
+    EnglishTutorVocabWord word;
+    std::string error;
+    if (!EnglishTutorService::GetVocabWord(word, error)) {
         return std::unexpected(error);
     }
 
@@ -300,8 +284,16 @@ ToolResult EnglishTutorMcpTool::HandleSetLevel(const PropertyList& properties) {
     if (root == nullptr) {
         return std::unexpected("Failed to allocate JSON result");
     }
-    cJSON_AddNumberToObject(root, "level", level);
-    cJSON_AddStringToObject(root, "level_name", level_name.c_str());
+    cJSON_AddStringToObject(root, "word", word.word.c_str());
+    cJSON_AddStringToObject(root, "meaning", word.meaning.c_str());
+
+    cJSON* examples = cJSON_CreateArray();
+    if (examples != nullptr) {
+        cJSON_AddItemToObject(root, "examples", examples);
+        for (const auto& example : word.examples) {
+            cJSON_AddItemToArray(examples, cJSON_CreateString(example.c_str()));
+        }
+    }
     return root;
 }
 
@@ -332,8 +324,6 @@ ToolResult EnglishTutorMcpTool::HandleGetProgress(const PropertyList& properties
     if (root == nullptr) {
         return std::unexpected("Failed to allocate JSON result");
     }
-    cJSON_AddNumberToObject(root, "level", progress.level);
-    cJSON_AddStringToObject(root, "level_name", progress.level_name.c_str());
     cJSON_AddNumberToObject(root, "sessions_total", progress.sessions_total);
     cJSON_AddStringToObject(root, "top_weakness", progress.top_weakness.c_str());
 

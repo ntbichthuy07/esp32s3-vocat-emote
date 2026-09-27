@@ -202,8 +202,6 @@ bool EnglishTutorService::StartSession(EnglishTutorSession& out_session, std::st
         return false;
     }
 
-    out_session.level = GetInt(response.get(), "level", 5);
-    out_session.level_name = GetString(response.get(), "level_name");
     out_session.sessions_total = GetInt(response.get(), "sessions_total", 0);
     out_session.topic = GetString(response.get(), "topic");
     out_session.prompts.clear();
@@ -292,29 +290,32 @@ bool EnglishTutorService::RecordReview(const std::string& id, bool correct,
     return true;
 }
 
-bool EnglishTutorService::SetLevel(int level, std::string& out_level_name,
-                                    std::string& out_error) {
-    if (level < 1 || level > 10) {
-        out_error = "Level must be between 1 and 10";
-        return false;
-    }
-
+bool EnglishTutorService::GetVocabWord(EnglishTutorVocabWord& out_word, std::string& out_error) {
     CJsonUniquePtr request(cJSON_CreateObject());
     if (!request) {
         out_error = "Failed to allocate tutor request";
         return false;
     }
     cJSON_AddStringToObject(request.get(), "token", kTutorApiSecret);
-    cJSON_AddStringToObject(request.get(), "action", "set_level");
-    cJSON_AddNumberToObject(request.get(), "level", level);
+    cJSON_AddStringToObject(request.get(), "action", "get_vocab_word");
 
-    ESP_LOGI(TAG, "Setting English tutor level to %d", level);
+    ESP_LOGI(TAG, "Fetching a vocabulary word to teach");
 
     CJsonUniquePtr response;
     if (!CallAppsScript(request.get(), response, out_error)) {
         return false;
     }
-    out_level_name = GetString(response.get(), "level_name");
+
+    out_word.word = GetString(response.get(), "word");
+    out_word.meaning = GetString(response.get(), "meaning");
+    out_word.examples.clear();
+    auto examples = cJSON_GetObjectItem(response.get(), "examples");
+    if (cJSON_IsArray(examples)) {
+        cJSON* item;
+        cJSON_ArrayForEach(item, examples) {
+            if (cJSON_IsString(item)) out_word.examples.push_back(item->valuestring);
+        }
+    }
     return true;
 }
 
@@ -349,8 +350,6 @@ bool EnglishTutorService::GetProgress(EnglishTutorProgress& out_progress,
         return false;
     }
 
-    out_progress.level = GetInt(response.get(), "level", 5);
-    out_progress.level_name = GetString(response.get(), "level_name");
     out_progress.sessions_total = GetInt(response.get(), "sessions_total", 0);
     out_progress.top_weakness = GetString(response.get(), "top_weakness");
 
