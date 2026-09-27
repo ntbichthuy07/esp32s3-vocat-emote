@@ -153,6 +153,37 @@ int GetInt(cJSON* obj, const char* key, int fallback) {
     return cJSON_IsNumber(item) ? item->valueint : fallback;
 }
 
+void ParseNotes(cJSON* array, std::vector<EnglishTutorNote>& out_notes) {
+    out_notes.clear();
+    if (!cJSON_IsArray(array)) return;
+    cJSON* item;
+    cJSON_ArrayForEach(item, array) {
+        EnglishTutorNote note;
+        note.id = GetString(item, "id");
+        note.created_date = GetString(item, "created_date");
+        note.category = GetString(item, "category");
+        note.original = GetString(item, "original");
+        note.better = GetString(item, "better");
+        note.explanation = GetString(item, "explanation");
+        out_notes.push_back(note);
+    }
+}
+
+void ParseReviewItems(cJSON* array, std::vector<EnglishTutorReviewItem>& out_items) {
+    out_items.clear();
+    if (!cJSON_IsArray(array)) return;
+    cJSON* item;
+    cJSON_ArrayForEach(item, array) {
+        EnglishTutorReviewItem review;
+        review.id = GetString(item, "id");
+        review.original = GetString(item, "original");
+        review.better = GetString(item, "better");
+        review.category = GetString(item, "category");
+        review.bucket = GetString(item, "bucket");
+        out_items.push_back(review);
+    }
+}
+
 }  // namespace
 
 bool EnglishTutorService::StartSession(EnglishTutorSession& out_session, std::string& out_error) {
@@ -184,33 +215,80 @@ bool EnglishTutorService::StartSession(EnglishTutorSession& out_session, std::st
             if (cJSON_IsString(item)) out_session.prompts.push_back(item->valuestring);
         }
     }
+
+    ParseReviewItems(cJSON_GetObjectItem(response.get(), "due_review"), out_session.due_review);
     return true;
 }
 
-bool EnglishTutorService::LogMistake(const std::string& original, const std::string& better,
-                                      const std::string& explanation,
-                                      const std::string& category, std::string& out_id,
-                                      std::string& out_error) {
+bool EnglishTutorService::LogNote(const std::string& original, const std::string& better,
+                                   const std::string& explanation, const std::string& category,
+                                   const std::string& bucket, std::string& out_id,
+                                   std::string& out_error) {
     CJsonUniquePtr request(cJSON_CreateObject());
     if (!request) {
         out_error = "Failed to allocate tutor request";
         return false;
     }
     cJSON_AddStringToObject(request.get(), "token", kTutorApiSecret);
-    cJSON_AddStringToObject(request.get(), "action", "log_mistake");
+    cJSON_AddStringToObject(request.get(), "action", "log_note");
     cJSON_AddStringToObject(request.get(), "original", original.c_str());
     cJSON_AddStringToObject(request.get(), "better", better.c_str());
     cJSON_AddStringToObject(request.get(), "explanation", explanation.c_str());
     cJSON_AddStringToObject(request.get(), "category", category.c_str());
+    cJSON_AddStringToObject(request.get(), "bucket", bucket.c_str());
 
-    ESP_LOGI(TAG, "Logging mistake: \"%s\" -> \"%s\" (%s)", original.c_str(), better.c_str(),
-             category.c_str());
+    ESP_LOGI(TAG, "Logging %s note: \"%s\" -> \"%s\" (%s)", bucket.c_str(), original.c_str(),
+             better.c_str(), category.c_str());
 
     CJsonUniquePtr response;
     if (!CallAppsScript(request.get(), response, out_error)) {
         return false;
     }
     out_id = GetString(response.get(), "id");
+    return true;
+}
+
+bool EnglishTutorService::GetDueReview(int limit, const std::string& bucket,
+                                        std::vector<EnglishTutorReviewItem>& out_items,
+                                        std::string& out_error) {
+    CJsonUniquePtr request(cJSON_CreateObject());
+    if (!request) {
+        out_error = "Failed to allocate tutor request";
+        return false;
+    }
+    cJSON_AddStringToObject(request.get(), "token", kTutorApiSecret);
+    cJSON_AddStringToObject(request.get(), "action", "get_due_review");
+    cJSON_AddNumberToObject(request.get(), "limit", limit);
+    cJSON_AddStringToObject(request.get(), "bucket", bucket.c_str());
+
+    CJsonUniquePtr response;
+    if (!CallAppsScript(request.get(), response, out_error)) {
+        return false;
+    }
+    ParseReviewItems(cJSON_GetObjectItem(response.get(), "items"), out_items);
+    return true;
+}
+
+bool EnglishTutorService::RecordReview(const std::string& id, bool correct,
+                                        std::string& out_next_review_date,
+                                        std::string& out_error) {
+    CJsonUniquePtr request(cJSON_CreateObject());
+    if (!request) {
+        out_error = "Failed to allocate tutor request";
+        return false;
+    }
+    cJSON_AddStringToObject(request.get(), "token", kTutorApiSecret);
+    cJSON_AddStringToObject(request.get(), "action", "record_review");
+    cJSON_AddStringToObject(request.get(), "id", id.c_str());
+    cJSON_AddBoolToObject(request.get(), "correct", correct);
+
+    ESP_LOGI(TAG, "Recording review for note %s: %s", id.c_str(), correct ? "correct" : "wrong");
+
+    CJsonUniquePtr response;
+    if (!CallAppsScript(request.get(), response, out_error)) {
+        return false;
+    }
+    out_next_review_date = GetString(response.get(), "next_review_date");
     return true;
 }
 
@@ -274,21 +352,15 @@ bool EnglishTutorService::GetProgress(EnglishTutorProgress& out_progress,
     out_progress.level = GetInt(response.get(), "level", 5);
     out_progress.level_name = GetString(response.get(), "level_name");
     out_progress.sessions_total = GetInt(response.get(), "sessions_total", 0);
-    out_progress.recent_mistakes.clear();
+    out_progress.top_weakness = GetString(response.get(), "top_weakness");
 
-    auto mistakes = cJSON_GetObjectItem(response.get(), "recent_mistakes");
-    if (cJSON_IsArray(mistakes)) {
-        cJSON* item;
-        cJSON_ArrayForEach(item, mistakes) {
-            EnglishTutorMistake mistake;
-            mistake.id = GetString(item, "id");
-            mistake.created_date = GetString(item, "created_date");
-            mistake.category = GetString(item, "category");
-            mistake.original = GetString(item, "original");
-            mistake.better = GetString(item, "better");
-            mistake.explanation = GetString(item, "explanation");
-            out_progress.recent_mistakes.push_back(mistake);
-        }
-    }
+    ParseNotes(cJSON_GetObjectItem(response.get(), "recent_mistakes"),
+               out_progress.recent_mistakes);
+    ParseNotes(cJSON_GetObjectItem(response.get(), "recent_vocabulary"),
+               out_progress.recent_vocabulary);
+
+    auto vocab_stats = cJSON_GetObjectItem(response.get(), "vocab_stats");
+    out_progress.vocab_stats.in_review = GetInt(vocab_stats, "in_review", 0);
+    out_progress.vocab_stats.mastered = GetInt(vocab_stats, "mastered", 0);
     return true;
 }
