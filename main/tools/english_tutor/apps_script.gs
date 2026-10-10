@@ -84,6 +84,8 @@ function doPost(e) {
         return recordReview(body);
       case "get_vocab_word":
         return getVocabWord(body);
+      case "add_vocabulary":
+        return addVocabulary(body);
       case "end_session":
         return endSession(body);
       case "get_progress":
@@ -241,6 +243,27 @@ function logVocabularyNote(body) {
   // EaseFactor | NextReviewDate | Reps | LastTaughtDate
   sheet.appendRow([id, new Date(), "", "", "", body.original || "", body.better || "",
                     body.category || "", 1, DEFAULT_EASE_FACTOR, nextReviewDate, 0, ""]);
+  return jsonResponse({ok: true, id: id});
+}
+
+// --- add_vocabulary ------------------------------------------------------
+
+// Saves a word/phrase the learner explicitly asked to remember (e.g. from an ad-hoc
+// translation question), as a curated-style row -- same shape get_vocab_word's seed rows use,
+// so it immediately joins the spaced-repetition review cycle. LastTaughtDate is stamped now
+// (the word was just introduced in this conversation), which also keeps get_vocab_word's
+// rotation from immediately resurfacing it.
+function addVocabulary(body) {
+  var sheet = sheetByName(VOCAB_SHEET);
+  var id = "V" + (sheet.getLastRow() + 1);
+
+  var nextReviewDate = new Date();
+  nextReviewDate.setDate(nextReviewDate.getDate() + 1);  // first review: tomorrow
+
+  // ID | CreatedDate | Word | Meaning | Examples | Original | Better | Category | Interval |
+  // EaseFactor | NextReviewDate | Reps | LastTaughtDate
+  sheet.appendRow([id, new Date(), body.word || "", body.meaning || "", body.examples || "",
+                    "", "", "", 1, DEFAULT_EASE_FACTOR, nextReviewDate, 0, new Date()]);
   return jsonResponse({ok: true, id: id});
 }
 

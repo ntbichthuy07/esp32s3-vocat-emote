@@ -92,6 +92,14 @@ public:
     // fills out_word on success; false and out_error otherwise (e.g. nothing seeded).
     static bool GetVocabWord(EnglishTutorVocabWord& out_word, std::string& out_error);
 
+    // Saves a word/phrase the learner explicitly asked to remember (e.g. from an ad-hoc
+    // translation question) as a new curated-style entry, starting its spaced-repetition
+    // schedule immediately. `examples` may be empty, or multiple sentences separated by " | ".
+    // Returns true and fills out_id on success; false and out_error otherwise.
+    static bool AddVocabulary(const std::string& word, const std::string& meaning,
+                               const std::string& examples, std::string& out_id,
+                               std::string& out_error);
+
     // Appends a completed session's summary, increments the session count, and refreshes the
     // cached top weakness used to bias future topic selection. Returns true on success; false
     // and out_error otherwise.

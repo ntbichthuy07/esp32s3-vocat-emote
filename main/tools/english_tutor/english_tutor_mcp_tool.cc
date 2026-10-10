@@ -146,12 +146,38 @@ void EnglishTutorMcpTool::Initialize() {
         "vocabulary mid-conversation, not every session. Weave the word and one example "
         "naturally into what you say next; don't just read the definition out loud. This is "
         "separate from self.tutor.log_note(bucket=\"vocabulary\"), which is for expressions "
-        "that come up naturally in the conversation rather than ones you deliberately teach.\n"
+        "that come up naturally in the conversation rather than ones you deliberately teach, "
+        "and from self.tutor.add_vocabulary, which saves a word the learner explicitly asked "
+        "you to remember.\n"
         "Return:\n"
         "  `word`, `meaning`, `examples` (an array of example sentences).",
         PropertyList(),
         [](const PropertyList& properties) -> ToolResult {
             return HandleGetVocabWord(properties);
+        });
+
+    mcp_server.AddTool(
+        "self.tutor.add_vocabulary",
+        "Saves a word or phrase the learner explicitly asks you to remember -- e.g. they ask "
+        "what a Vietnamese word translates to in English, you answer, and they then say "
+        "something like 'add this to my vocabulary', 'luu tu nay lai', 'them tu nay vao tu "
+        "vung moi'. Works at any point in the conversation, not just during a practice "
+        "session. Only call this when the learner actually asked you to save something -- "
+        "never on your own initiative.\n"
+        "Args:\n"
+        "  `word`: the English word or phrase to remember.\n"
+        "  `meaning`: a short definition, or the original-language word/phrase it translates.\n"
+        "  `examples`: optional, one or more example sentences using the word; separate "
+        "multiple examples with ' | '.\n"
+        "Return:\n"
+        "  A JSON object confirming it was saved.",
+        PropertyList({
+            Property("word", kPropertyTypeString),
+            Property("meaning", kPropertyTypeString),
+            Property("examples", kPropertyTypeString, std::string("")),
+        }),
+        [](const PropertyList& properties) -> ToolResult {
+            return HandleAddVocabulary(properties);
         });
 
     mcp_server.AddTool(
@@ -294,6 +320,25 @@ ToolResult EnglishTutorMcpTool::HandleGetVocabWord(const PropertyList& propertie
             cJSON_AddItemToArray(examples, cJSON_CreateString(example.c_str()));
         }
     }
+    return root;
+}
+
+ToolResult EnglishTutorMcpTool::HandleAddVocabulary(const PropertyList& properties) {
+    auto word = properties["word"].value<std::string>();
+    auto meaning = properties["meaning"].value<std::string>();
+    auto examples = properties["examples"].value<std::string>();
+
+    std::string id, error;
+    if (!EnglishTutorService::AddVocabulary(word, meaning, examples, id, error)) {
+        return std::unexpected(error);
+    }
+
+    cJSON* root = cJSON_CreateObject();
+    if (root == nullptr) {
+        return std::unexpected("Failed to allocate JSON result");
+    }
+    cJSON_AddBoolToObject(root, "saved", true);
+    cJSON_AddStringToObject(root, "id", id.c_str());
     return root;
 }
 

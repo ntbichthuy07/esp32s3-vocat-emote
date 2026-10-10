@@ -319,6 +319,30 @@ bool EnglishTutorService::GetVocabWord(EnglishTutorVocabWord& out_word, std::str
     return true;
 }
 
+bool EnglishTutorService::AddVocabulary(const std::string& word, const std::string& meaning,
+                                         const std::string& examples, std::string& out_id,
+                                         std::string& out_error) {
+    CJsonUniquePtr request(cJSON_CreateObject());
+    if (!request) {
+        out_error = "Failed to allocate tutor request";
+        return false;
+    }
+    cJSON_AddStringToObject(request.get(), "token", kTutorApiSecret);
+    cJSON_AddStringToObject(request.get(), "action", "add_vocabulary");
+    cJSON_AddStringToObject(request.get(), "word", word.c_str());
+    cJSON_AddStringToObject(request.get(), "meaning", meaning.c_str());
+    cJSON_AddStringToObject(request.get(), "examples", examples.c_str());
+
+    ESP_LOGI(TAG, "Adding vocabulary word: \"%s\" (%s)", word.c_str(), meaning.c_str());
+
+    CJsonUniquePtr response;
+    if (!CallAppsScript(request.get(), response, out_error)) {
+        return false;
+    }
+    out_id = GetString(response.get(), "id");
+    return true;
+}
+
 bool EnglishTutorService::EndSession(const std::string& summary, std::string& out_error) {
     CJsonUniquePtr request(cJSON_CreateObject());
     if (!request) {
