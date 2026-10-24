@@ -328,120 +328,7 @@ bool ResolvePeriodRange(const std::string& period, std::string& out_start, std::
     return true;
 }
 
-// Resolves the period immediately before `period` -- the previous day/week/month cycle, matching
-// `period`'s own kind -- for ComparePeriods' default `period_b`. Stepping back by the exact unit
-// (rather than by current_end - current_start days) keeps "previous month" a real 25th-to-25th
-// cycle even though months vary in length. Returns false if the device clock isn't synced.
-bool ResolvePreviousPeriodRange(const std::string& period, std::string& out_start,
-                                 std::string& out_end, std::string& out_label) {
-    std::string current_start, current_end, current_label;
-    if (!ResolvePeriodRange(period, current_start, current_end, current_label)) return false;
 
-    std::string effective = period.empty() ? "month" : period;
-    struct tm start_tm = ParseDate(current_start);
-
-    if (LooksLikeMonth(effective) || effective == "month") {
-        struct tm prev_start = AddMonths(start_tm, -1);
-        out_start = FormatDate(prev_start);
-        out_end = current_start;
-        // Label = the month the cycle ends in, i.e. one month after its start (see ParseMonth).
-        out_label = FormatDate(AddMonths(prev_start, 1)).substr(0, 7);
-        return true;
-    }
-
-    if (effective == "week") {
-        out_start = FormatDate(AddDays(start_tm, -7));
-        out_end = current_start;
-        out_label = "previous week";
-        return true;
-    }
-
-    // "today", "yesterday", or an explicit day: the single day before it.
-    out_start = FormatDate(AddDays(start_tm, -1));
-    out_end = current_start;
-    out_label = out_start;
-    return true;
-}
-
-// Shared by FinanceService::GetSummary and ComparePeriods, which needs to fetch a summary for an
-// already-resolved [start, end) range (e.g. "the period before period_a") rather than resolving
-// a period keyword itself.
-bool GetSummaryForRange(const std::string& start, const std::string& end,
-                        const std::string& label, FinanceSummary& out_summary,
-                        std::string& out_error) {
-    CJsonUniquePtr request(cJSON_CreateObject());
-    if (!request) {
-        out_error = "Failed to allocate finance request";
-        return false;
-    }
-    cJSON_AddStringToObject(request.get(), "token", kFinanceApiSecret);
-    cJSON_AddStringToObject(request.get(), "action", "get_summary");
-    cJSON_AddStringToObject(request.get(), "start", start.c_str());
-    cJSON_AddStringToObject(request.get(), "end", end.c_str());
-
-    ESP_LOGI(TAG, "Getting finance summary for %s (%s..%s)", label.c_str(), start.c_str(),
-             end.c_str());
-
-    CJsonUniquePtr response;
-    if (!CallAppsScript(request.get(), response, out_error)) {
-        return false;
-    }
-
-    auto income = cJSON_GetObjectItem(response.get(), "income");
-    auto expense = cJSON_GetObjectItem(response.get(), "expense");
-    auto net = cJSON_GetObjectItem(response.get(), "net");
-    auto count = cJSON_GetObjectItem(response.get(), "count");
-    out_summary.period = label;
-    out_summary.income = cJSON_IsNumber(income) ? static_cast<long long>(income->valuedouble) : 0;
-    out_summary.expense =
-        cJSON_IsNumber(expense) ? static_cast<long long>(expense->valuedouble) : 0;
-    out_summary.net = cJSON_IsNumber(net) ? static_cast<long long>(net->valuedouble) : 0;
-    out_summary.count = cJSON_IsNumber(count) ? count->valueint : 0;
-    return true;
-}
-
-// Shared by FinanceService::GetCategorySummary and ComparePeriods -- see GetSummaryForRange.
-bool GetCategorySummaryForRange(const std::string& start, const std::string& end,
-                                const std::string& label, FinanceCategorySummary& out_summary,
-                                std::string& out_error) {
-    CJsonUniquePtr request(cJSON_CreateObject());
-    if (!request) {
-        out_error = "Failed to allocate finance request";
-        return false;
-    }
-    cJSON_AddStringToObject(request.get(), "token", kFinanceApiSecret);
-    cJSON_AddStringToObject(request.get(), "action", "get_category_summary");
-    cJSON_AddStringToObject(request.get(), "start", start.c_str());
-    cJSON_AddStringToObject(request.get(), "end", end.c_str());
-
-    ESP_LOGI(TAG, "Getting finance category summary for %s (%s..%s)", label.c_str(),
-             start.c_str(), end.c_str());
-
-    CJsonUniquePtr response;
-    if (!CallAppsScript(request.get(), response, out_error)) {
-        return false;
-    }
-
-    out_summary.period = label;
-    out_summary.categories.clear();
-
-    auto categories = cJSON_GetObjectItem(response.get(), "categories");
-    if (cJSON_IsArray(categories)) {
-        cJSON* entry;
-        cJSON_ArrayForEach(entry, categories) {
-            auto category = cJSON_GetObjectItem(entry, "category");
-            auto total = cJSON_GetObjectItem(entry, "total");
-            auto count = cJSON_GetObjectItem(entry, "count");
-
-            FinanceCategoryTotal item;
-            item.category = cJSON_IsString(category) ? category->valuestring : "";
-            item.total = cJSON_IsNumber(total) ? static_cast<long long>(total->valuedouble) : 0;
-            item.count = cJSON_IsNumber(count) ? count->valueint : 0;
-            out_summary.categories.push_back(std::move(item));
-        }
-    }
-    return true;
-}
 
 }  // namespace
 
@@ -594,282 +481,60 @@ bool FinanceService::ListTransactions(const std::string& period, int limit,
     return true;
 }
 
-bool FinanceService::GetSummary(const std::string& period, FinanceSummary& out_summary,
-                                 std::string& out_error) {
-    std::string start, end, label;
-    if (!ResolvePeriodRange(period, start, end, label)) {
-        out_error = "Device clock is not synced yet; try again in a moment";
-        return false;
-    }
-    return GetSummaryForRange(start, end, label, out_summary, out_error);
-}
 
-bool FinanceService::GetCategorySummary(const std::string& period,
-                                         FinanceCategorySummary& out_summary,
-                                         std::string& out_error) {
-    std::string start, end, label;
-    if (!ResolvePeriodRange(period, start, end, label)) {
-        out_error = "Device clock is not synced yet; try again in a moment";
-        return false;
-    }
-    return GetCategorySummaryForRange(start, end, label, out_summary, out_error);
-}
 
-bool FinanceService::SetBudget(const std::string& category, long long limit,
-                                std::string& out_error) {
+bool FinanceService::GetMonthlySpending(const std::string& category,
+                                       FinanceMonthlySpending& out_result,
+                                       std::string& out_error) {
     CJsonUniquePtr request(cJSON_CreateObject());
     if (!request) {
         out_error = "Failed to allocate finance request";
         return false;
     }
     cJSON_AddStringToObject(request.get(), "token", kFinanceApiSecret);
-    cJSON_AddStringToObject(request.get(), "action", "set_budget");
-    cJSON_AddStringToObject(request.get(), "category", category.c_str());
-    cJSON_AddNumberToObject(request.get(), "limit", static_cast<double>(limit));
-
-    ESP_LOGI(TAG, "Setting budget for %s to %lld", category.c_str(), limit);
-
-    CJsonUniquePtr response;
-    return CallAppsScript(request.get(), response, out_error);
-}
-
-bool FinanceService::GetBudgetStatus(const std::string& category, const std::string& period,
-                                      FinanceBudgetStatus& out_status, std::string& out_error) {
-    std::string start, end, label;
-    if (!ResolvePeriodRange(period, start, end, label)) {
-        out_error = "Device clock is not synced yet; try again in a moment";
-        return false;
+    cJSON_AddStringToObject(request.get(), "action", "get_monthly_spending");
+    if (!category.empty()) {
+        cJSON_AddStringToObject(request.get(), "category", category.c_str());
     }
 
-    CJsonUniquePtr request(cJSON_CreateObject());
-    if (!request) {
-        out_error = "Failed to allocate finance request";
-        return false;
-    }
-    cJSON_AddStringToObject(request.get(), "token", kFinanceApiSecret);
-    cJSON_AddStringToObject(request.get(), "action", "get_budget");
-    cJSON_AddStringToObject(request.get(), "category", category.c_str());
-    cJSON_AddStringToObject(request.get(), "start", start.c_str());
-    cJSON_AddStringToObject(request.get(), "end", end.c_str());
-
-    ESP_LOGI(TAG, "Getting budget status for %s (%s..%s)", category.c_str(), start.c_str(),
-             end.c_str());
+    ESP_LOGI(TAG, "Getting monthly spending (category: %s)",
+             category.empty() ? "all" : category.c_str());
 
     CJsonUniquePtr response;
     if (!CallAppsScript(request.get(), response, out_error)) {
         return false;
     }
 
-    auto category_item = cJSON_GetObjectItem(response.get(), "category");
-    auto budget = cJSON_GetObjectItem(response.get(), "budget");
-    auto spent = cJSON_GetObjectItem(response.get(), "spent");
+    auto income = cJSON_GetObjectItem(response.get(), "income");
     auto remaining = cJSON_GetObjectItem(response.get(), "remaining");
-    auto percentage = cJSON_GetObjectItem(response.get(), "percentage");
-    auto status = cJSON_GetObjectItem(response.get(), "status");
+    auto spent = cJSON_GetObjectItem(response.get(), "spent");
+    auto cat_found = cJSON_GetObjectItem(response.get(), "category_found");
+    auto cat_amount = cJSON_GetObjectItem(response.get(), "category_amount");
 
-    out_status.category = cJSON_IsString(category_item) ? category_item->valuestring : category;
-    out_status.budget = cJSON_IsNumber(budget) ? static_cast<long long>(budget->valuedouble) : 0;
-    out_status.spent = cJSON_IsNumber(spent) ? static_cast<long long>(spent->valuedouble) : 0;
-    out_status.remaining =
+    out_result.income = cJSON_IsNumber(income) ? static_cast<long long>(income->valuedouble) : 0;
+    out_result.remaining =
         cJSON_IsNumber(remaining) ? static_cast<long long>(remaining->valuedouble) : 0;
-    out_status.percentage = cJSON_IsNumber(percentage) ? percentage->valuedouble : 0;
-    out_status.status = cJSON_IsString(status) ? status->valuestring : "";
-    return true;
-}
+    out_result.spent = cJSON_IsNumber(spent) ? static_cast<long long>(spent->valuedouble) : 0;
+    out_result.category = category;
+    out_result.category_found = cJSON_IsTrue(cat_found);
+    out_result.category_amount =
+        cJSON_IsNumber(cat_amount) ? static_cast<long long>(cat_amount->valuedouble) : 0;
 
-bool FinanceService::ComparePeriods(const std::string& period_a, const std::string& period_b,
-                                     const std::string& category,
-                                     FinancePeriodComparison& out_comparison,
-                                     std::string& out_error) {
-    std::string start_a, end_a, label_a;
-    if (!ResolvePeriodRange(period_a, start_a, end_a, label_a)) {
-        out_error = "Device clock is not synced yet; try again in a moment";
-        return false;
-    }
-
-    std::string start_b, end_b, label_b;
-    bool resolved_b = period_b.empty() ? ResolvePreviousPeriodRange(period_a, start_b, end_b, label_b)
-                                        : ResolvePeriodRange(period_b, start_b, end_b, label_b);
-    if (!resolved_b) {
-        out_error = "Device clock is not synced yet; try again in a moment";
-        return false;
-    }
-
-    long long value_a = 0;
-    long long value_b = 0;
-
-    if (category.empty()) {
-        FinanceSummary summary_a, summary_b;
-        if (!GetSummaryForRange(start_a, end_a, label_a, summary_a, out_error)) return false;
-        if (!GetSummaryForRange(start_b, end_b, label_b, summary_b, out_error)) return false;
-        value_a = summary_a.expense;
-        value_b = summary_b.expense;
-    } else {
-        FinanceCategorySummary categories_a, categories_b;
-        if (!GetCategorySummaryForRange(start_a, end_a, label_a, categories_a, out_error)) {
-            return false;
-        }
-        if (!GetCategorySummaryForRange(start_b, end_b, label_b, categories_b, out_error)) {
-            return false;
-        }
-        // Categories are signed (positive income, negative expense -- see apps_script.gs'
-        // normalizeAmount), but "so sanh tien an thang nay va thang truoc" cares about the
-        // magnitude of food spending, not the ledger sign; abs() keeps "more" mean a bigger
-        // number regardless of whether `category` happens to be an income or expense one.
-        for (const auto& item : categories_a.categories) {
-            if (item.category == category) value_a = item.total < 0 ? -item.total : item.total;
-        }
-        for (const auto& item : categories_b.categories) {
-            if (item.category == category) value_b = item.total < 0 ? -item.total : item.total;
-        }
-    }
-
-    out_comparison.period_a = label_a;
-    out_comparison.period_b = label_b;
-    out_comparison.category = category;
-    out_comparison.value_a = value_a;
-    out_comparison.value_b = value_b;
-    out_comparison.difference = value_a - value_b;
-    double denom = value_b < 0 ? -static_cast<double>(value_b) : static_cast<double>(value_b);
-    out_comparison.percent_change =
-        denom != 0 ? static_cast<double>(value_a - value_b) / denom * 100.0 : 0.0;
-    return true;
-}
-
-namespace {
-
-void ParseFundingGoal(cJSON* response, FinanceFundingGoal& out_goal) {
-    auto id = cJSON_GetObjectItem(response, "id");
-    auto target = cJSON_GetObjectItem(response, "target");
-    auto saved = cJSON_GetObjectItem(response, "saved");
-    auto remaining = cJSON_GetObjectItem(response, "remaining");
-    auto percentage = cJSON_GetObjectItem(response, "percentage");
-    auto completed = cJSON_GetObjectItem(response, "completed");
-    auto deadline = cJSON_GetObjectItem(response, "deadline");
-    auto completed_date = cJSON_GetObjectItem(response, "completed_date");
-
-    out_goal.id = cJSON_IsString(id) ? id->valuestring : "";
-    out_goal.target = cJSON_IsNumber(target) ? static_cast<long long>(target->valuedouble) : 0;
-    out_goal.saved = cJSON_IsNumber(saved) ? static_cast<long long>(saved->valuedouble) : 0;
-    out_goal.remaining =
-        cJSON_IsNumber(remaining) ? static_cast<long long>(remaining->valuedouble) : 0;
-    out_goal.percentage = cJSON_IsNumber(percentage) ? percentage->valuedouble : 0;
-    out_goal.completed = cJSON_IsTrue(completed);
-    out_goal.deadline = cJSON_IsString(deadline) ? deadline->valuestring : "";
-    out_goal.completed_date = cJSON_IsString(completed_date) ? completed_date->valuestring : "";
-}
-
-}  // namespace
-
-bool FinanceService::AddFundingGoal(const std::string& name, long long target_amount,
-                                     const std::string& deadline, FinanceFundingGoal& out_goal,
-                                     std::string& out_error) {
-    if (name.empty()) {
-        out_error = "Missing funding goal name";
-        return false;
-    }
-
-    CJsonUniquePtr request(cJSON_CreateObject());
-    if (!request) {
-        out_error = "Failed to allocate finance request";
-        return false;
-    }
-    cJSON_AddStringToObject(request.get(), "token", kFinanceApiSecret);
-    cJSON_AddStringToObject(request.get(), "action", "add_funding_goal");
-    cJSON_AddStringToObject(request.get(), "name", name.c_str());
-    cJSON_AddNumberToObject(request.get(), "target_amount", static_cast<double>(target_amount));
-    cJSON_AddStringToObject(request.get(), "deadline", deadline.c_str());
-
-    ESP_LOGI(TAG, "Creating funding goal %s: target %lld, deadline %s", name.c_str(),
-             target_amount, deadline.empty() ? "none" : deadline.c_str());
-
-    CJsonUniquePtr response;
-    if (!CallAppsScript(request.get(), response, out_error)) {
-        return false;
-    }
-
-    out_goal.name = name;
-    ParseFundingGoal(response.get(), out_goal);
-    return true;
-}
-
-bool FinanceService::GetFundingGoal(const std::string& name, FinanceFundingGoal& out_goal,
-                                     std::string& out_error) {
-    if (name.empty()) {
-        out_error = "Missing funding goal name";
-        return false;
-    }
-
-    CJsonUniquePtr request(cJSON_CreateObject());
-    if (!request) {
-        out_error = "Failed to allocate finance request";
-        return false;
-    }
-    cJSON_AddStringToObject(request.get(), "token", kFinanceApiSecret);
-    cJSON_AddStringToObject(request.get(), "action", "get_funding_goal");
-    cJSON_AddStringToObject(request.get(), "name", name.c_str());
-
-    ESP_LOGI(TAG, "Getting funding goal %s", name.c_str());
-
-    CJsonUniquePtr response;
-    if (!CallAppsScript(request.get(), response, out_error)) {
-        return false;
-    }
-
-    out_goal.name = name;
-    ParseFundingGoal(response.get(), out_goal);
-    return true;
-}
-
-bool FinanceService::ListFundingGoals(FinanceFundingGoalList& out_list, std::string& out_error) {
-    out_list.goals.clear();
-
-    CJsonUniquePtr request(cJSON_CreateObject());
-    if (!request) {
-        out_error = "Failed to allocate finance request";
-        return false;
-    }
-    cJSON_AddStringToObject(request.get(), "token", kFinanceApiSecret);
-    cJSON_AddStringToObject(request.get(), "action", "list_funding_goals");
-
-    ESP_LOGI(TAG, "Listing funding goals");
-
-    CJsonUniquePtr response;
-    if (!CallAppsScript(request.get(), response, out_error)) {
-        return false;
-    }
-
-    auto goals = cJSON_GetObjectItem(response.get(), "goals");
-    if (cJSON_IsArray(goals)) {
+    out_result.categories.clear();
+    auto categories = cJSON_GetObjectItem(response.get(), "categories");
+    if (cJSON_IsArray(categories)) {
         cJSON* entry;
-        cJSON_ArrayForEach(entry, goals) {
-            auto name = cJSON_GetObjectItem(entry, "name");
-            FinanceFundingGoal goal;
-            goal.name = cJSON_IsString(name) ? name->valuestring : "";
-            ParseFundingGoal(entry, goal);
-            out_list.goals.push_back(std::move(goal));
+        cJSON_ArrayForEach(entry, categories) {
+            auto cat_name = cJSON_GetObjectItem(entry, "category");
+            auto amt = cJSON_GetObjectItem(entry, "amount");
+            FinanceCategoryMonthly item;
+            item.category = cJSON_IsString(cat_name) ? cat_name->valuestring : "";
+            item.amount = cJSON_IsNumber(amt) ? static_cast<long long>(amt->valuedouble) : 0;
+            out_result.categories.push_back(std::move(item));
         }
     }
+
     return true;
 }
 
-bool FinanceService::DeleteFundingGoal(const std::string& name, std::string& out_error) {
-    if (name.empty()) {
-        out_error = "Missing funding goal name";
-        return false;
-    }
 
-    CJsonUniquePtr request(cJSON_CreateObject());
-    if (!request) {
-        out_error = "Failed to allocate finance request";
-        return false;
-    }
-    cJSON_AddStringToObject(request.get(), "token", kFinanceApiSecret);
-    cJSON_AddStringToObject(request.get(), "action", "delete_funding_goal");
-    cJSON_AddStringToObject(request.get(), "name", name.c_str());
-
-    ESP_LOGI(TAG, "Deleting funding goal %s", name.c_str());
-
-    CJsonUniquePtr response;
-    return CallAppsScript(request.get(), response, out_error);
-}

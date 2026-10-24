@@ -14,17 +14,10 @@ public:
 private:
     static ToolResult HandleAddTransaction(const PropertyList& properties);
     static ToolResult HandleUpdateTransaction(const PropertyList& properties);
-    static ToolResult HandleGetSummary(const PropertyList& properties);
-    static ToolResult HandleGetCategorySummary(const PropertyList& properties);
     static ToolResult HandleListTransactions(const PropertyList& properties);
     static ToolResult HandleDeleteTransaction(const PropertyList& properties);
-    static ToolResult HandleSetBudget(const PropertyList& properties);
-    static ToolResult HandleGetBudget(const PropertyList& properties);
-    static ToolResult HandleComparePeriods(const PropertyList& properties);
-    static ToolResult HandleAddFundingGoal(const PropertyList& properties);
-    static ToolResult HandleGetFundingGoal(const PropertyList& properties);
-    static ToolResult HandleListFundingGoals(const PropertyList& properties);
-    static ToolResult HandleDeleteFundingGoal(const PropertyList& properties);
+    static ToolResult HandleGetMonthlySpending(const PropertyList& properties);
+
 };
 
 #endif  // FINANCE_MCP_TOOL_H

@@ -10,12 +10,11 @@
 namespace {
 
 constexpr const char* kCategoryHelp =
-    "Exactly one of: expense categories `food`, `transport`, `shopping`, `housing`, "
-    "`utilities`, `health`, `entertainment`, `education`, `travel`, `subscriptions`, `family`, "
-    "`personal`; income categories `salary`, `bonus`, `freelance`, `investment`, `gift`, "
-    "`refund`; funding categories `savings`, `debt` (unlike every category above, these go "
-    "either direction -- see the `amount` arg below for how to set their sign); or `other` for "
-    "anything else. Map the user's spoken category (in any language) to the closest one, e.g. "
+    "Category for the transaction, matching one of the 14 standardized categories in column F: "
+    "expense categories `housing`, `travel`, `subscriptions`, `transport`, `personal`, "
+    "`utilities`, `food`, `shopping`, `family`, `health`; income categories `salary`, `investment`; "
+    "debt category `debt` (negative means paying debt down, positive means borrowing); or `other` "
+    "for anything else. Map the user's spoken category (in any language) to the closest one, e.g. "
     "'an uong'/'com nuoc' -> `food`, 'di lai'/'xang xe' -> `transport`, 'hoa don dien nuoc' -> "
     "`utilities`, 'thue nha' -> `housing`, 'luong' -> `salary`, 'tra no'/'no' -> `debt`. Defaults "
     "to `other` if nothing fits.";
@@ -41,21 +40,15 @@ void FinanceMcpTool::Initialize() {
             "Args:\n"
             "  `amount`: Amount in VND. Positive for income, negative for expense (like a bank "
             "statement) -- this may be corrected automatically to match the category, EXCEPT "
-            "for `savings`/`debt`, whose sign is trusted exactly as given and never "
-            "auto-corrected: negative means money going into savings or paying debt down (goal "
-            "progress increases), positive means withdrawing savings back out or reversing a "
-            "debt payment (goal progress decreases). Get the sign right yourself for those two "
-            "categories -- e.g. 'rut 500 nghin tu tiet kiem mua xe may' (withdraw 500k from the "
-            "motorbike savings) -> category `savings`, amount +500000.\n"
+            "for `debt`, whose sign is trusted exactly as given and never "
+            "auto-corrected: negative means paying debt down, positive means borrowing or "
+            "reversing a debt payment. Get the sign right yourself for `debt` -- e.g. 'tra no 2 trieu' "
+            "(pay debt 2M) -> category `debt`, amount -2000000; 'vay 5 trieu' (borrow 5M) -> "
+            "category `debt`, amount +5000000.\n"
             "  `category`: ") +
             kCategoryHelp +
             "\n"
-            "  `description`: Optional short free-text note, e.g. the original phrase. If "
-            "`category` is `savings` or `debt` and this money is progress towards an existing "
-            "funding goal, call self.finance.list_funding_goals first and append that goal's "
-            "`id` (e.g. \"F1\") to the end of this description -- keep the rest of the "
-            "description as is, don't replace it -- so the ledger entry can be automatically "
-            "linked back to that goal's tracked progress. Use the `id`, not the goal's name.\n"
+            "  `description`: Optional short free-text note, e.g. the original phrase.\n"
             "  `date`: `today` (default), `yesterday`, `day_before_yesterday`, or an explicit "
             "`YYYY-MM-DD` -- use this for phrases like 'hom qua' (yesterday) or 'hom kia' (day "
             "before yesterday). Leave as `today` if no date was mentioned.\n"
@@ -84,12 +77,10 @@ void FinanceMcpTool::Initialize() {
         "change.\n"
         "Args:\n"
         "  `id`: The transaction id to update.\n"
-        "  `amount`: The corrected amount in VND. If `category` is `savings`/`debt`, its sign is "
+        "  `amount`: The corrected amount in VND. If `category` is `debt`, its sign is "
         "trusted as given -- see self.finance.add_transaction for what each sign means.\n"
         "  `category`: The corrected category -- see self.finance.add_transaction for the list.\n"
-        "  `description`: The corrected (or unchanged) description. If `category` is `savings` "
-        "or `debt` and it's not already there, append the exact funding goal id to the end -- "
-        "see self.finance.add_transaction.\n"
+        "  `description`: The corrected (or unchanged) description.\n"
         "Return:\n"
         "  A JSON object confirming the update.",
         PropertyList({
@@ -102,50 +93,7 @@ void FinanceMcpTool::Initialize() {
             return HandleUpdateTransaction(properties);
         });
 
-    mcp_server.AddTool(
-        "self.finance.get_summary",
-        std::string(
-            "Get income, expense, and net totals (plus transaction count) for a period, from "
-            "transactions previously recorded via self.finance.add_transaction. Use this when "
-            "the user asks how much they've spent or earned, e.g. 'hom nay toi tieu bao nhieu' "
-            "(how much did I spend today), 'tuan nay' (this week), 'thang nay' (this month), "
-            "'tinh hinh tai chinh thang nay the nao' (how's my finances this month).\n"
-            "Args:\n"
-            "  `period`: ") +
-            kPeriodHelp +
-            "\n"
-            "Return:\n"
-            "  A JSON object with `period`, `income` (VND), `expense` (VND), `net` (VND, "
-            "income - expense), and `count` (number of transactions).",
-        PropertyList({
-            Property("period", kPropertyTypeString, std::string("month")),
-        }),
-        [](const PropertyList& properties) -> ToolResult {
-            return HandleGetSummary(properties);
-        });
 
-    mcp_server.AddTool(
-        "self.finance.get_category_summary",
-        std::string(
-            "Get a breakdown by category for a period, sorted by amount, from transactions "
-            "previously recorded via self.finance.add_transaction. Use this when the user asks "
-            "what they spent money on, e.g. 'thang nay toi tieu vao nhung khoan nao' (what did "
-            "I spend on this month) or 'thang nay toi tieu bao nhieu tien an' (how much did I "
-            "spend on food this month -- look up the `food` entry in the result).\n"
-            "Args:\n"
-            "  `period`: ") +
-            kPeriodHelp +
-            "\n"
-            "Return:\n"
-            "  A JSON object with `period` and `categories`, a list of `{category, total, "
-            "count}` sorted by |total| descending. `total` is positive for income categories, "
-            "negative for expense categories.",
-        PropertyList({
-            Property("period", kPropertyTypeString, std::string("month")),
-        }),
-        [](const PropertyList& properties) -> ToolResult {
-            return HandleGetCategorySummary(properties);
-        });
 
     mcp_server.AddTool(
         "self.finance.list_transactions",
@@ -191,149 +139,24 @@ void FinanceMcpTool::Initialize() {
             return HandleDeleteTransaction(properties);
         });
 
+
     mcp_server.AddTool(
-        "self.finance.set_budget",
-        "Set (or replace) a category's recurring monthly budget limit. Use this when the user "
-        "sets a spending target, e.g. 'dat ngan sach an uong thang nay la 5 trieu' (set this "
-        "month's food budget to 5 million) -- the budget recurs every month until changed.\n"
+        "self.finance.get_monthly_spending",
+        "Get current month's financial metrics and category spending directly from the spreadsheet (columns F and H).\n"
+        "Use this tool when the user asks about this month's finances:\n"
+        "- 'tháng này tôi đã tiêu bao nhiêu tiền' (how much did I spend this month): report `spent` (income H2 minus remaining H3, i.e. H2 - H3).\n"
+        "- 'tháng này tôi còn bao nhiêu tiền' (how much money do I have left / remaining balance this month): report `remaining` (from column H3).\n"
+        "- 'tháng này tiền ăn / tiền xăng / [category] hết bao nhiêu' (how much spent on a specific category this month): pass `category` (e.g. `food`, `transport`, `housing`), report `category_amount`.\n"
+        "- 'chi tiêu theo danh mục tháng này' or 'tháng này tiêu những gì' (breakdown of expenses): report the `categories` list.\n"
         "Args:\n"
-        "  `category`: The category to budget -- see self.finance.add_transaction for the list.\n"
-        "  `limit`: The monthly budget limit in VND.\n"
+        "  `category`: (Optional) Standard category name to check specifically (e.g. `food`, `transport`, `shopping`, `housing`, `utilities`, `health`, `subscriptions`, `personal`, `family`, `debt`, `other`). Leave empty if asking for general spent/remaining or full breakdown.\n"
         "Return:\n"
-        "  A JSON object confirming the budget was set.",
+        "  A JSON object with `spent` (VND, H2 - H3), `remaining` (VND, H3), `income` (VND, H2), and `categories` list.",
         PropertyList({
-            Property("category", kPropertyTypeString, std::string("other")),
-            Property("limit", kPropertyTypeInteger, 0, 2000000000),
-        }),
-        [](const PropertyList& properties) -> ToolResult { return HandleSetBudget(properties); });
-
-    mcp_server.AddTool(
-        "self.finance.get_budget",
-        std::string(
-            "Get a category's budget status for a period: how much of its budget (set via "
-            "self.finance.set_budget) has been spent. Use this when the user asks about budget "
-            "usage, e.g. 'toi da dung bao nhieu ngan sach an uong' (how much of my food budget "
-            "have I used). `status` is `warning` at 80% spent and `exceeded` at 100%+ -- mention "
-            "this to the user when it's not `ok`.\n"
-            "Args:\n"
-            "  `category`: The category to check -- see self.finance.add_transaction for the "
-            "list.\n"
-            "  `period`: ") +
-            kPeriodHelp +
-            " Defaults to `month`, matching the budget's recurring cycle.\n"
-            "Return:\n"
-            "  A JSON object with `category`, `budget`, `spent`, `remaining` (all VND), "
-            "`percentage`, and `status` (`ok`/`warning`/`exceeded`). Fails if no budget is set "
-            "for that category.",
-        PropertyList({
-            Property("category", kPropertyTypeString, std::string("other")),
-            Property("period", kPropertyTypeString, std::string("month")),
-        }),
-        [](const PropertyList& properties) -> ToolResult { return HandleGetBudget(properties); });
-
-    mcp_server.AddTool(
-        "self.finance.compare_periods",
-        std::string(
-            "Compare spending between two periods, either overall or for one category. Use this "
-            "when the user asks to compare, e.g. 'thang nay toi tieu nhieu hon thang truoc bao "
-            "nhieu' (how much more did I spend this month than last month) or 'so sanh tien an "
-            "thang nay va thang truoc' (compare food spending this month vs last month).\n"
-            "Args:\n"
-            "  `period_a`: ") +
-            kPeriodHelp +
-            " Defaults to `month`.\n"
-            "  `period_b`: Same format as `period_a`. Leave empty to compare against the period "
-            "immediately before `period_a` (e.g. the previous calendar month).\n"
-            "  `category`: Leave empty to compare overall expense totals; or one category (see "
-            "self.finance.add_transaction for the list) to compare just that category.\n"
-            "Return:\n"
-            "  A JSON object with `period_a`, `period_b`, `value_a`, `value_b` (VND), "
-            "`difference` (value_a - value_b), and `percent_change`.",
-        PropertyList({
-            Property("period_a", kPropertyTypeString, std::string("month")),
-            Property("period_b", kPropertyTypeString, std::string("")),
             Property("category", kPropertyTypeString, std::string("")),
         }),
         [](const PropertyList& properties) -> ToolResult {
-            return HandleComparePeriods(properties);
-        });
-
-    mcp_server.AddTool(
-        "self.finance.add_funding_goal",
-        "Create a new named funding goal with a target amount -- either a savings target (money "
-        "to accumulate towards a purchase, logged via the `savings` transaction category) or a "
-        "debt target (money owed that's being paid off, logged via `debt`). Use this when the "
-        "user wants to start saving towards something or start tracking a debt, e.g. 'tao muc "
-        "tieu tiet kiem mua xe may 20 trieu' (create a funding goal to buy a motorbike, 20 "
-        "million) or 'de danh mua laptop moi, han cuoi nam nay' (save up for a new laptop, "
-        "deadline end of this year) or 'tao khoan tra no the tin dung 10 trieu' (create a "
-        "funding goal to pay off 10 million of credit card debt). Convert the spoken amount to "
-        "a plain VND integer yourself (20 trieu -> 20000000).\n"
-        "Args:\n"
-        "  `name`: Short name for the goal, e.g. the original phrase like 'mua xe may'. Must be "
-        "unique -- fails if a goal with this exact name already exists.\n"
-        "  `target_amount`: The savings or debt target in VND.\n"
-        "  `deadline`: Optional explicit `YYYY-MM-DD` the user wants to hit the target by. Leave "
-        "empty if no deadline was mentioned.\n"
-        "Return:\n"
-        "  A JSON object confirming the goal was created, including its `id` (e.g. \"F1\") -- "
-        "keep this in mind, since self.finance.add_transaction needs it (not the name) to link a "
-        "transaction back to this goal.",
-        PropertyList({
-            Property("name", kPropertyTypeString),
-            Property("target_amount", kPropertyTypeInteger, 0, 2000000000),
-            Property("deadline", kPropertyTypeString, std::string("")),
-        }),
-        [](const PropertyList& properties) -> ToolResult {
-            return HandleAddFundingGoal(properties);
-        });
-
-    mcp_server.AddTool(
-        "self.finance.get_funding_goal",
-        "Get one funding goal's progress. Use this when the user asks how a specific savings or "
-        "debt goal is doing, e.g. 'toi tiet kiem duoc bao nhieu cho muc tieu mua xe may roi' "
-        "(how much have I saved for the motorbike goal).\n"
-        "Args:\n"
-        "  `name`: The goal's exact name, as given to self.finance.add_funding_goal.\n"
-        "Return:\n"
-        "  A JSON object with `id` (e.g. \"F1\" -- what self.finance.add_transaction needs to "
-        "link a transaction to this goal), `target`, `saved`, `remaining` (all VND), "
-        "`percentage`, `completed`, `deadline` (empty if none), and `completed_date` (empty if "
-        "not filled in yet). Fails if no goal exists with that name.",
-        PropertyList({
-            Property("name", kPropertyTypeString),
-        }),
-        [](const PropertyList& properties) -> ToolResult {
-            return HandleGetFundingGoal(properties);
-        });
-
-    mcp_server.AddTool(
-        "self.finance.list_funding_goals",
-        "List every funding goal and its progress. Use this when the user asks to see all their "
-        "savings/debt goals, e.g. 'toi dang co nhung muc tieu tiet kiem nao' (what savings goals "
-        "do I have). Summarize in speech instead of reading every field, unless asked for "
-        "detail.\n"
-        "Return:\n"
-        "  A JSON object with `goals`, a list of `{id, name, target, saved, remaining, "
-        "percentage, completed, deadline, completed_date}`.",
-        PropertyList(),
-        [](const PropertyList& properties) -> ToolResult {
-            return HandleListFundingGoals(properties);
-        });
-
-    mcp_server.AddTool(
-        "self.finance.delete_funding_goal",
-        "Delete a funding goal by name. Use this when the user asks to remove a goal, e.g. 'xoa "
-        "muc tieu tiet kiem mua xe may' (delete the motorbike funding goal).\n"
-        "Args:\n"
-        "  `name`: The goal's exact name, as given to self.finance.add_funding_goal.\n"
-        "Return:\n"
-        "  A JSON object confirming the deletion.",
-        PropertyList({
-            Property("name", kPropertyTypeString),
-        }),
-        [](const PropertyList& properties) -> ToolResult {
-            return HandleDeleteFundingGoal(properties);
+            return HandleGetMonthlySpending(properties);
         });
 
     ESP_LOGI(TAG, "FinanceMcpTool initialized");
@@ -384,60 +207,6 @@ ToolResult FinanceMcpTool::HandleUpdateTransaction(const PropertyList& propertie
     return root;
 }
 
-ToolResult FinanceMcpTool::HandleGetSummary(const PropertyList& properties) {
-    auto period = properties["period"].value<std::string>();
-
-    FinanceSummary summary;
-    std::string error;
-    if (!FinanceService::GetSummary(period, summary, error)) {
-        return std::unexpected(error);
-    }
-
-    cJSON* root = cJSON_CreateObject();
-    if (root == nullptr) {
-        return std::unexpected("Failed to allocate JSON result");
-    }
-    cJSON_AddStringToObject(root, "period", summary.period.c_str());
-    cJSON_AddNumberToObject(root, "income", static_cast<double>(summary.income));
-    cJSON_AddNumberToObject(root, "expense", static_cast<double>(summary.expense));
-    cJSON_AddNumberToObject(root, "net", static_cast<double>(summary.net));
-    cJSON_AddNumberToObject(root, "count", summary.count);
-    return root;
-}
-
-ToolResult FinanceMcpTool::HandleGetCategorySummary(const PropertyList& properties) {
-    auto period = properties["period"].value<std::string>();
-
-    FinanceCategorySummary summary;
-    std::string error;
-    if (!FinanceService::GetCategorySummary(period, summary, error)) {
-        return std::unexpected(error);
-    }
-
-    cJSON* root = cJSON_CreateObject();
-    if (root == nullptr) {
-        return std::unexpected("Failed to allocate JSON result");
-    }
-    cJSON_AddStringToObject(root, "period", summary.period.c_str());
-
-    cJSON* categories = cJSON_CreateArray();
-    if (categories == nullptr) {
-        cJSON_Delete(root);
-        return std::unexpected("Failed to allocate JSON result");
-    }
-    cJSON_AddItemToObject(root, "categories", categories);
-
-    for (const auto& category : summary.categories) {
-        cJSON* item = cJSON_CreateObject();
-        if (item == nullptr) continue;
-        cJSON_AddStringToObject(item, "category", category.category.c_str());
-        cJSON_AddNumberToObject(item, "total", static_cast<double>(category.total));
-        cJSON_AddNumberToObject(item, "count", category.count);
-        cJSON_AddItemToArray(categories, item);
-    }
-
-    return root;
-}
 
 ToolResult FinanceMcpTool::HandleListTransactions(const PropertyList& properties) {
     auto period = properties["period"].value<std::string>();
@@ -494,56 +263,13 @@ ToolResult FinanceMcpTool::HandleDeleteTransaction(const PropertyList& propertie
     return root;
 }
 
-ToolResult FinanceMcpTool::HandleSetBudget(const PropertyList& properties) {
-    auto category = properties["category"].value<std::string>();
-    auto limit = properties["limit"].value<int>();
 
-    std::string error;
-    if (!FinanceService::SetBudget(category, limit, error)) {
-        return std::unexpected(error);
-    }
-
-    cJSON* root = cJSON_CreateObject();
-    if (root == nullptr) {
-        return std::unexpected("Failed to allocate JSON result");
-    }
-    cJSON_AddBoolToObject(root, "set", true);
-    cJSON_AddStringToObject(root, "category", category.c_str());
-    cJSON_AddNumberToObject(root, "limit", limit);
-    return root;
-}
-
-ToolResult FinanceMcpTool::HandleGetBudget(const PropertyList& properties) {
-    auto category = properties["category"].value<std::string>();
-    auto period = properties["period"].value<std::string>();
-
-    FinanceBudgetStatus status;
-    std::string error;
-    if (!FinanceService::GetBudgetStatus(category, period, status, error)) {
-        return std::unexpected(error);
-    }
-
-    cJSON* root = cJSON_CreateObject();
-    if (root == nullptr) {
-        return std::unexpected("Failed to allocate JSON result");
-    }
-    cJSON_AddStringToObject(root, "category", status.category.c_str());
-    cJSON_AddNumberToObject(root, "budget", static_cast<double>(status.budget));
-    cJSON_AddNumberToObject(root, "spent", static_cast<double>(status.spent));
-    cJSON_AddNumberToObject(root, "remaining", static_cast<double>(status.remaining));
-    cJSON_AddNumberToObject(root, "percentage", status.percentage);
-    cJSON_AddStringToObject(root, "status", status.status.c_str());
-    return root;
-}
-
-ToolResult FinanceMcpTool::HandleComparePeriods(const PropertyList& properties) {
-    auto period_a = properties["period_a"].value<std::string>();
-    auto period_b = properties["period_b"].value<std::string>();
+ToolResult FinanceMcpTool::HandleGetMonthlySpending(const PropertyList& properties) {
     auto category = properties["category"].value<std::string>();
 
-    FinancePeriodComparison comparison;
+    FinanceMonthlySpending spending;
     std::string error;
-    if (!FinanceService::ComparePeriods(period_a, period_b, category, comparison, error)) {
+    if (!FinanceService::GetMonthlySpending(category, spending, error)) {
         return std::unexpected(error);
     }
 
@@ -551,113 +277,31 @@ ToolResult FinanceMcpTool::HandleComparePeriods(const PropertyList& properties) 
     if (root == nullptr) {
         return std::unexpected("Failed to allocate JSON result");
     }
-    cJSON_AddStringToObject(root, "period_a", comparison.period_a.c_str());
-    cJSON_AddStringToObject(root, "period_b", comparison.period_b.c_str());
-    if (!comparison.category.empty()) {
-        cJSON_AddStringToObject(root, "category", comparison.category.c_str());
-    }
-    cJSON_AddNumberToObject(root, "value_a", static_cast<double>(comparison.value_a));
-    cJSON_AddNumberToObject(root, "value_b", static_cast<double>(comparison.value_b));
-    cJSON_AddNumberToObject(root, "difference", static_cast<double>(comparison.difference));
-    cJSON_AddNumberToObject(root, "percent_change", comparison.percent_change);
-    return root;
-}
+    cJSON_AddNumberToObject(root, "spent", static_cast<double>(spending.spent));
+    cJSON_AddNumberToObject(root, "remaining", static_cast<double>(spending.remaining));
+    cJSON_AddNumberToObject(root, "income", static_cast<double>(spending.income));
 
-namespace {
-
-cJSON* FundingGoalToJson(const FinanceFundingGoal& goal) {
-    cJSON* root = cJSON_CreateObject();
-    if (root == nullptr) return nullptr;
-    cJSON_AddStringToObject(root, "id", goal.id.c_str());
-    cJSON_AddStringToObject(root, "name", goal.name.c_str());
-    cJSON_AddNumberToObject(root, "target", static_cast<double>(goal.target));
-    cJSON_AddNumberToObject(root, "saved", static_cast<double>(goal.saved));
-    cJSON_AddNumberToObject(root, "remaining", static_cast<double>(goal.remaining));
-    cJSON_AddNumberToObject(root, "percentage", goal.percentage);
-    cJSON_AddBoolToObject(root, "completed", goal.completed);
-    cJSON_AddStringToObject(root, "deadline", goal.deadline.c_str());
-    cJSON_AddStringToObject(root, "completed_date", goal.completed_date.c_str());
-    return root;
-}
-
-}  // namespace
-
-ToolResult FinanceMcpTool::HandleAddFundingGoal(const PropertyList& properties) {
-    auto name = properties["name"].value<std::string>();
-    auto target_amount = properties["target_amount"].value<int>();
-    auto deadline = properties["deadline"].value<std::string>();
-
-    FinanceFundingGoal goal;
-    std::string error;
-    if (!FinanceService::AddFundingGoal(name, target_amount, deadline, goal, error)) {
-        return std::unexpected(error);
+    if (!spending.category.empty()) {
+        cJSON_AddStringToObject(root, "category", spending.category.c_str());
+        cJSON_AddBoolToObject(root, "category_found", spending.category_found);
+        cJSON_AddNumberToObject(root, "category_amount", static_cast<double>(spending.category_amount));
     }
 
-    cJSON* root = FundingGoalToJson(goal);
-    if (root == nullptr) {
-        return std::unexpected("Failed to allocate JSON result");
-    }
-    cJSON_AddBoolToObject(root, "created", true);
-    return root;
-}
-
-ToolResult FinanceMcpTool::HandleGetFundingGoal(const PropertyList& properties) {
-    auto name = properties["name"].value<std::string>();
-
-    FinanceFundingGoal goal;
-    std::string error;
-    if (!FinanceService::GetFundingGoal(name, goal, error)) {
-        return std::unexpected(error);
-    }
-
-    cJSON* root = FundingGoalToJson(goal);
-    if (root == nullptr) {
-        return std::unexpected("Failed to allocate JSON result");
-    }
-    return root;
-}
-
-ToolResult FinanceMcpTool::HandleListFundingGoals(const PropertyList& properties) {
-    FinanceFundingGoalList list;
-    std::string error;
-    if (!FinanceService::ListFundingGoals(list, error)) {
-        return std::unexpected(error);
-    }
-
-    cJSON* root = cJSON_CreateObject();
-    if (root == nullptr) {
-        return std::unexpected("Failed to allocate JSON result");
-    }
-
-    cJSON* goals = cJSON_CreateArray();
-    if (goals == nullptr) {
-        cJSON_Delete(root);
-        return std::unexpected("Failed to allocate JSON result");
-    }
-    cJSON_AddItemToObject(root, "goals", goals);
-
-    for (const auto& goal : list.goals) {
-        cJSON* item = FundingGoalToJson(goal);
-        if (item == nullptr) continue;
-        cJSON_AddItemToArray(goals, item);
+    cJSON* categories = cJSON_CreateArray();
+    if (categories != nullptr) {
+        cJSON_AddItemToObject(root, "categories", categories);
+        for (const auto& item : spending.categories) {
+            cJSON* cat_obj = cJSON_CreateObject();
+            if (cat_obj != nullptr) {
+                cJSON_AddStringToObject(cat_obj, "category", item.category.c_str());
+                cJSON_AddNumberToObject(cat_obj, "amount", static_cast<double>(item.amount));
+                cJSON_AddItemToArray(categories, cat_obj);
+            }
+        }
     }
 
     return root;
 }
 
-ToolResult FinanceMcpTool::HandleDeleteFundingGoal(const PropertyList& properties) {
-    auto name = properties["name"].value<std::string>();
 
-    std::string error;
-    if (!FinanceService::DeleteFundingGoal(name, error)) {
-        return std::unexpected(error);
-    }
 
-    cJSON* root = cJSON_CreateObject();
-    if (root == nullptr) {
-        return std::unexpected("Failed to allocate JSON result");
-    }
-    cJSON_AddBoolToObject(root, "deleted", true);
-    cJSON_AddStringToObject(root, "name", name.c_str());
-    return root;
-}
