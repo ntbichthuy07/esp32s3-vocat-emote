@@ -20,7 +20,7 @@
 // Category analytics live in the same "Transactions" sheet:
 // Column F: Category
 // Column G: Total (formulas: G2='=SUMIF(D:D,">0",D:D)', G3='=SUM(D:D)', G4+ = '=SUMIF(E:E,"*"&F4&"*",D:D)')
-// Column H: CurrentMonthly (formulas: H2=income this cycle, H3=saving this cycle, H4+=category this cycle: 25th last month to 24th this month)
+// Column H: CurrentMonthly (formulas: H2=income this cycle, H3=sum(H4:H), H4+=category this cycle: 25th this month to 24th next month)
 //
 // Categories are maintained in column F (Category): the list of supported / standardized
 // categories is read dynamically from column F (from row 4 downwards). Users can add, modify,
@@ -259,24 +259,22 @@ function ensureCategoryHeaders(sheet) {
   if (f2.toLowerCase() !== "income") {
     sheet.getRange(2, CATEGORY_COL, 1, 2).setValues([["income", '=SUMIF(D:D,">0",D:D)']]);
   }
+  var targetH2 = '=SUMIFS(D:D,B:B,">="&DATE(YEAR(TODAY()),MONTH(TODAY()),25),B:B,"<"&DATE(YEAR(TODAY()),MONTH(TODAY())+1,25),D:D,">0")';
   var h2 = sheet.getRange(2, CURRENT_MONTHLY_COL).getValue();
   var h2Form = String(sheet.getRange(2, CURRENT_MONTHLY_COL).getFormula() || "");
-  if (h2 === "" || h2 === null || h2Form.indexOf("EOMONTH") !== -1) {
-    sheet.getRange(2, CURRENT_MONTHLY_COL).setFormula(
-      '=SUMIFS(D:D,D:D,">0",B:B,">="&DATE(YEAR(TODAY()),MONTH(TODAY())-1,25),B:B,"<"&DATE(YEAR(TODAY()),MONTH(TODAY()),25))'
-    );
+  if (h2 === "" || h2 === null || h2Form.indexOf("EOMONTH") !== -1 || h2Form.indexOf("MONTH(TODAY())-1") !== -1 || h2Form !== targetH2) {
+    sheet.getRange(2, CURRENT_MONTHLY_COL).setFormula(targetH2);
   }
 
   var f3 = String(sheet.getRange(3, CATEGORY_COL).getValue()).trim();
   if (f3.toLowerCase() !== "saving") {
     sheet.getRange(3, CATEGORY_COL, 1, 2).setValues([["saving", '=SUM(D:D)']]);
   }
+  var targetH3 = '=SUM(H4:H)';
   var h3 = sheet.getRange(3, CURRENT_MONTHLY_COL).getValue();
   var h3Form = String(sheet.getRange(3, CURRENT_MONTHLY_COL).getFormula() || "");
-  if (h3 === "" || h3 === null || h3Form.indexOf("EOMONTH") !== -1) {
-    sheet.getRange(3, CURRENT_MONTHLY_COL).setFormula(
-      '=SUMIFS(D:D,B:B,">="&DATE(YEAR(TODAY()),MONTH(TODAY())-1,25),B:B,"<"&DATE(YEAR(TODAY()),MONTH(TODAY()),25))'
-    );
+  if (h3 === "" || h3 === null || h3Form.indexOf("EOMONTH") !== -1 || h3Form.indexOf("MONTH(TODAY())-1") !== -1 || h3Form.toUpperCase().indexOf("SUM(H4:H)") === -1) {
+    sheet.getRange(3, CURRENT_MONTHLY_COL).setFormula(targetH3);
   }
 
   // Auto-populate default 14 categories into column F from F4 to F17 with formulas in G4:G17 and H4:H17 if F4 is empty
@@ -287,18 +285,18 @@ function ensureCategoryHeaders(sheet) {
       return [
         c,
         '=SUMIF(E:E,"*"&F' + r + '&"*",D:D)',
-        '=SUMIFS(D:D,E:E,"*"&F' + r + '&"*",B:B,">="&DATE(YEAR(TODAY()),MONTH(TODAY())-1,25),B:B,"<"&DATE(YEAR(TODAY()),MONTH(TODAY()),25))'
+        '=SUMIFS(D:D,E:E,"*"&F' + r + '&"*",B:B,">="&DATE(YEAR(TODAY()),MONTH(TODAY()),25),B:B,"<"&DATE(YEAR(TODAY()),MONTH(TODAY())+1,25))'
       ];
     });
     sheet.getRange(4, CATEGORY_COL, rows.length, 3).setValues(rows);
   } else {
-    // If rows already exist, migrate any old formulas using EOMONTH in column H
+    // If rows already exist, migrate any old formulas in column H
     for (var r = 4; r <= lastRow; r++) {
       var cell = sheet.getRange(r, CURRENT_MONTHLY_COL);
       var form = String(cell.getFormula() || "");
-      if (form.indexOf("EOMONTH") !== -1) {
+      if (form.indexOf("EOMONTH") !== -1 || form.indexOf("MONTH(TODAY())-1") !== -1) {
         cell.setFormula(
-          '=SUMIFS(D:D,E:E,"*"&F' + r + '&"*",B:B,">="&DATE(YEAR(TODAY()),MONTH(TODAY())-1,25),B:B,"<"&DATE(YEAR(TODAY()),MONTH(TODAY()),25))'
+          '=SUMIFS(D:D,E:E,"*"&F' + r + '&"*",B:B,">="&DATE(YEAR(TODAY()),MONTH(TODAY()),25),B:B,"<"&DATE(YEAR(TODAY()),MONTH(TODAY())+1,25))'
         );
       }
     }
